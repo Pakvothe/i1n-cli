@@ -1,0 +1,10 @@
+{
+  "name": "i1n",
+  "version": "0.0.1",
+  "description": "AI-powered internationalization with global caching. Coming soon.",
+  "main": "index.js",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
