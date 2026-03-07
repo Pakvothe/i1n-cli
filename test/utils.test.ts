@@ -1,0 +1,268 @@
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import { extractVariables, replaceVariables } from "../src/shared/variables.js";
+import { flattenObject, unflattenObject } from "../src/parsers/utils.js";
+import { generateTypeDefinitions } from "../src/shared/codegen.js";
+import { readProjectConfig, writeProjectConfig, projectConfigExists } from "../src/shared/config.js";
+import type { Wording, I1nProjectConfig } from "../src/shared/types.js";
+
+describe("extractVariables", () => {
+  it("extracts {var} syntax", () => {
+    expect(extractVariables("Hello {name}")).toEqual(["name"]);
+  });
+
+  it("extracts {{var}} syntax", () => {
+    expect(extractVariables("Hello {{name}}")).toEqual(["name"]);
+  });
+
+  it("extracts %{var} syntax", () => {
+    expect(extractVariables("Hello %{name}")).toEqual(["name"]);
+  });
+
+  it("extracts multiple variables", () => {
+    const vars = extractVariables("{greeting}, {name}! You have {count} items.");
+    expect(vars).toEqual(["greeting", "name", "count"]);
+  });
+
+  it("deduplicates variables", () => {
+    expect(extractVariables("{name} and {name}")).toEqual(["name"]);
+  });
+
+  it("returns empty for no variables", () => {
+    expect(extractVariables("plain text")).toEqual([]);
+  });
+
+  it("handles mixed syntaxes", () => {
+    const vars = extractVariables("{{greeting}} %{name} {count}");
+    expect(vars).toEqual(["greeting", "name", "count"]);
+  });
+
+  it("does not match empty braces", () => {
+    expect(extractVariables("{}")).toEqual([]);
+  });
+});
+
+describe("replaceVariables", () => {
+  it("replaces {var}", () => {
+    expect(replaceVariables("Hello {name}", { name: "World" })).toBe("Hello World");
+  });
+
+  it("replaces {{var}}", () => {
+    expect(replaceVariables("Hello {{name}}", { name: "World" })).toBe("Hello World");
+  });
+
+  it("replaces %{var}", () => {
+    expect(replaceVariables("Hello %{name}", { name: "World" })).toBe("Hello World");
+  });
+
+  it("leaves unknown variables unchanged", () => {
+    expect(replaceVariables("Hello {name}", {})).toBe("Hello {name}");
+  });
+
+  it("replaces multiple variables", () => {
+    const result = replaceVariables("{a} and {b}", { a: "X", b: "Y" });
+    expect(result).toBe("X and Y");
+  });
+});
+
+describe("flattenObject", () => {
+  it("flattens nested objects", () => {
+    const result = flattenObject({ a: { b: { c: "deep" } } });
+    expect(result).toEqual({ "a.b.c": "deep" });
+  });
+
+  it("handles flat objects", () => {
+    const result = flattenObject({ key: "value" });
+    expect(result).toEqual({ key: "value" });
+  });
+
+  it("converts numbers to strings", () => {
+    const result = flattenObject({ count: 5 });
+    expect(result).toEqual({ count: "5" });
+  });
+
+  it("converts booleans to strings", () => {
+    const result = flattenObject({ active: true, disabled: false });
+    expect(result).toEqual({ active: "true", disabled: "false" });
+  });
+
+  it("skips arrays", () => {
+    const result = flattenObject({ list: [1, 2, 3] as unknown as Record<string, unknown> });
+    expect(result).toEqual({});
+  });
+
+  it("skips null", () => {
+    const result = flattenObject({ nothing: null as unknown as string });
+    expect(result).toEqual({});
+  });
+
+  it("handles multiple levels", () => {
+    const result = flattenObject({
+      level1: {
+        level2a: "a",
+        level2b: { level3: "b" },
+      },
+    });
+    expect(result).toEqual({
+      "level1.level2a": "a",
+      "level1.level2b.level3": "b",
+    });
+  });
+});
+
+describe("unflattenObject", () => {
+  it("unflattens dot-notation keys", () => {
+    const result = unflattenObject({ "a.b.c": "deep" });
+    expect(result).toEqual({ a: { b: { c: "deep" } } });
+  });
+
+  it("handles flat keys", () => {
+    const result = unflattenObject({ key: "value" });
+    expect(result).toEqual({ key: "value" });
+  });
+
+  it("merges sibling keys", () => {
+    const result = unflattenObject({
+      "a.x": "1",
+      "a.y": "2",
+    });
+    expect(result).toEqual({ a: { x: "1", y: "2" } });
+  });
+
+  it("handles key collision (string vs nested)", () => {
+    const result = unflattenObject({
+      "a": "string value",
+      "a.b": "nested value",
+    });
+    expect(result.a).toBe("string value");
+  });
+
+  it("roundtrips with flattenObject", () => {
+    const original = {
+      simple: "value",
+      nested: { deep: { key: "here" } },
+      multi: { a: "1", b: "2" },
+    };
+
+    const flat = flattenObject(original);
+    const restored = unflattenObject(flat);
+    expect(restored).toEqual(original);
+  });
+});
+
+describe("generateTypeDefinitions", () => {
+  it("generates type definitions for keys without variables", () => {
+    const wordings: Wording[] = [
+      { key: "title", namespace: "common", value_json: { en: "Hello" } },
+    ];
+
+    const output = generateTypeDefinitions(wordings, "en");
+    expect(output).toContain("\"common.title\": Record<string, never>");
+  });
+
+  it("generates typed variables for keys with variables", () => {
+    const wordings: Wording[] = [
+      { key: "greeting", namespace: "ui", value_json: { en: "Hello {name}, you have {count} items" } },
+    ];
+
+    const output = generateTypeDefinitions(wordings, "en");
+    expect(output).toContain("\"ui.greeting\": { name: string; count: string }");
+  });
+
+  it("generates valid module declaration", () => {
+    const wordings: Wording[] = [
+      { key: "test", namespace: "ns", value_json: { en: "Test" } },
+    ];
+
+    const output = generateTypeDefinitions(wordings, "en");
+    expect(output).toContain('declare module "i1n"');
+    expect(output).toContain("interface I1nKeys");
+    expect(output).toContain("type I1nKey = keyof I1nKeys");
+    expect(output).toContain("function t<K extends I1nKey>");
+  });
+
+  it("sorts keys alphabetically by full key", () => {
+    const wordings: Wording[] = [
+      { key: "z", namespace: "b", value_json: { en: "Z" } },
+      { key: "a", namespace: "a", value_json: { en: "A" } },
+    ];
+
+    const output = generateTypeDefinitions(wordings, "en");
+    const aIndex = output.indexOf('"a.a"');
+    const bIndex = output.indexOf('"b.z"');
+    expect(aIndex).toBeLessThan(bIndex);
+  });
+
+  it("uses empty Record for keys without source locale value", () => {
+    const wordings: Wording[] = [
+      { key: "missing", namespace: "ns", value_json: { es: "Texto" } },
+    ];
+
+    const output = generateTypeDefinitions(wordings, "en");
+    expect(output).toContain("Record<string, never>");
+  });
+});
+
+describe("project config", () => {
+  let dir: string;
+
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "i1n-config-")); });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const validConfig: I1nProjectConfig = {
+    projectId: "550e8400-e29b-41d4-a716-446655440000",
+    localesDir: "locales",
+    sourceLocale: "en",
+    format: "nested-json",
+    framework: "i18next",
+  };
+
+  it("writes and reads config", () => {
+    writeProjectConfig(validConfig, dir);
+    const read = readProjectConfig(dir);
+    expect(read).toEqual(validConfig);
+  });
+
+  it("returns null for non-existent config", () => {
+    expect(readProjectConfig(dir)).toBeNull();
+  });
+
+  it("returns null for invalid config", () => {
+    fs.writeFileSync(path.join(dir, "i1n.config.json"), '{"invalid": true}', "utf-8");
+    expect(readProjectConfig(dir)).toBeNull();
+  });
+
+  it("rejects path traversal in localesDir", () => {
+    const malicious = { ...validConfig, localesDir: "../../../etc" };
+    fs.writeFileSync(path.join(dir, "i1n.config.json"), JSON.stringify(malicious), "utf-8");
+    expect(readProjectConfig(dir)).toBeNull();
+  });
+
+  it("rejects absolute path in localesDir", () => {
+    const malicious = { ...validConfig, localesDir: "/etc/locales" };
+    fs.writeFileSync(path.join(dir, "i1n.config.json"), JSON.stringify(malicious), "utf-8");
+    expect(readProjectConfig(dir)).toBeNull();
+  });
+
+  it("rejects invalid locale code", () => {
+    const bad = { ...validConfig, sourceLocale: "not-a-locale-123" };
+    fs.writeFileSync(path.join(dir, "i1n.config.json"), JSON.stringify(bad), "utf-8");
+    expect(readProjectConfig(dir)).toBeNull();
+  });
+
+  it("accepts valid locale codes", () => {
+    for (const locale of ["en", "es", "pt_br", "en-US", "zh_Hans"]) {
+      const cfg = { ...validConfig, sourceLocale: locale };
+      writeProjectConfig(cfg, dir);
+      expect(readProjectConfig(dir)).not.toBeNull();
+    }
+  });
+
+  it("reports config existence correctly", () => {
+    expect(projectConfigExists(dir)).toBe(false);
+    writeProjectConfig(validConfig, dir);
+    expect(projectConfigExists(dir)).toBe(true);
+  });
+});
