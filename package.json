@@ -36,11 +36,31 @@
   },
   "keywords": [
     "i18n",
+    "i1n",
     "localization",
     "internationalization",
+    "translations",
+    "translate",
     "cli",
-    "translations"
+    "sdk",
+    "typesafe",
+    "i18next",
+    "next-intl",
+    "vue-i18n",
+    "react-intl",
+    "flutter",
+    "arb",
+    "android",
+    "ios",
+    "l10n",
+    "locale",
+    "multilingual"
   ],
-  "author": "",
-  "license": "MIT"
+  "author": "Pakvothe (https://github.com/Pakvothe)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pakvothe/i1n-cli.git"
+  },
+  "homepage": "https://i1n.ai"
 }

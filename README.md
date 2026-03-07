@@ -7,9 +7,15 @@ Localization as code. CLI and SDK for [i1n](https://i1n.ai) — push, pull, and 
 ```bash
 # CLI (global)
 npm install -g i1n
+pnpm add -g i1n
+yarn global add i1n
+bun add -g i1n
 
 # SDK + types (project dependency)
 npm install -D i1n
+pnpm add -D i1n
+yarn add -D i1n
+bun add -D i1n
 ```
 
 You can install it globally for terminal usage, as a dev dependency for CI/CD scripts and type-safe SDK access, or both.
