@@ -1,17 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
 import { z } from "zod";
-import type { I1nCredentials, I1nProjectConfig } from "./types.js";
+import type { I1nProjectConfig } from "./types.js";
 
-const GLOBAL_DIR = path.join(os.homedir(), ".i1n");
-const GLOBAL_CONFIG = path.join(GLOBAL_DIR, "config.json");
 const PROJECT_CONFIG = "i1n.config.json";
-
-const CredentialsSchema = z.object({
-  api_key: z.string().startsWith("i1n_"),
-  project_id: z.string().uuid(),
-});
 
 const SAFE_PATH = z.string().refine(
   (val) => !val.includes("..") && !path.isAbsolute(val),
@@ -24,6 +16,7 @@ const LOCALE_CODE = z.string().regex(
 );
 
 const ProjectConfigSchema = z.object({
+  apiKey: z.string().startsWith("i1n_"),
   projectId: z.string().uuid(),
   localesDir: SAFE_PATH,
   sourceLocale: LOCALE_CODE,
@@ -50,24 +43,6 @@ const ProjectConfigSchema = z.object({
   ]),
 });
 
-export function readCredentials(): I1nCredentials | null {
-  if (!fs.existsSync(GLOBAL_CONFIG)) return null;
-
-  try {
-    const raw = JSON.parse(fs.readFileSync(GLOBAL_CONFIG, "utf-8"));
-    return CredentialsSchema.parse(raw);
-  } catch {
-    return null;
-  }
-}
-
-export function writeCredentials(creds: I1nCredentials): void {
-  fs.mkdirSync(GLOBAL_DIR, { recursive: true });
-  const tmp = `${GLOBAL_CONFIG}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(creds, null, 2), "utf-8");
-  fs.renameSync(tmp, GLOBAL_CONFIG);
-}
-
 export function readProjectConfig(
   cwd = process.cwd(),
 ): I1nProjectConfig | null {
@@ -92,4 +67,23 @@ export function writeProjectConfig(
 
 export function projectConfigExists(cwd = process.cwd()): boolean {
   return fs.existsSync(path.join(cwd, PROJECT_CONFIG));
+}
+
+/**
+ * Ensures i1n.config.json is in the project's .gitignore.
+ * Creates .gitignore if it doesn't exist.
+ */
+export function ensureGitignore(cwd = process.cwd()): void {
+  const gitignorePath = path.join(cwd, ".gitignore");
+  const entries = ["i1n.config.json", "**/.i1n-push-state.json"];
+
+  if (fs.existsSync(gitignorePath)) {
+    const content = fs.readFileSync(gitignorePath, "utf-8");
+    const lines = content.split("\n").map((l) => l.trim());
+    const missing = entries.filter((e) => !lines.includes(e));
+    if (missing.length === 0) return;
+    fs.appendFileSync(gitignorePath, `\n# i1n\n${missing.join("\n")}\n`);
+  } else {
+    fs.writeFileSync(gitignorePath, `# i1n\n${entries.join("\n")}\n`);
+  }
 }

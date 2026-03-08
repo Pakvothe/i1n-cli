@@ -2,10 +2,48 @@ import fs from "node:fs";
 import path from "node:path";
 import { Command } from "commander";
 import * as p from "@clack/prompts";
-import { readCredentials, readProjectConfig } from "../../shared/config.js";
+import { readProjectConfig } from "../../shared/config.js";
 import { callCliSync } from "../../shared/supabase.js";
 import { getParser } from "../../parsers/index.js";
 import { generateTypeDefinitions } from "../../shared/codegen.js";
+import { writePushState } from "../../shared/push-state.js";
+import type { I1nProjectConfig } from "../../shared/types.js";
+
+/**
+ * Core pull logic: fetch translations, write files, generate types, update push state.
+ * Reused by both `i1n pull` command and auto-pull after translation in `i1n push`.
+ */
+export async function executePull(
+  config: I1nProjectConfig,
+): Promise<{ wordings: number; languages: number }> {
+  const result = await callCliSync(
+    "pull",
+    { project_id: config.projectId },
+    config.apiKey,
+  );
+
+  const { wordings, languages } = result;
+
+  if (wordings.length === 0) {
+    return { wordings: 0, languages: 0 };
+  }
+
+  // Write locale files
+  const parser = getParser(config.format);
+  const langObjects = languages.map((code: string) => ({ code, name: code }));
+  parser.write(config.localesDir, wordings, langObjects);
+
+  // Generate type definitions
+  const typeDefs = generateTypeDefinitions(wordings, config.sourceLocale);
+  const typesPath = path.join(config.localesDir, "i1n.d.ts");
+  fs.mkdirSync(path.dirname(typesPath), { recursive: true });
+  fs.writeFileSync(typesPath, typeDefs, "utf-8");
+
+  // Update push state so next push only sends actual changes
+  writePushState(wordings, config.localesDir);
+
+  return { wordings: wordings.length, languages: languages.length };
+}
 
 export const pullCommand = new Command("pull")
   .description("Pull translations from i1n")
@@ -16,12 +54,6 @@ export const pullCommand = new Command("pull")
       process.exit(1);
     }
 
-    const creds = readCredentials();
-    if (!creds) {
-      p.log.error("Not authenticated. Run `i1n init` first.");
-      process.exit(1);
-    }
-
     p.intro("i1n pull");
 
     const spinner = p.spinner();
@@ -29,57 +61,22 @@ export const pullCommand = new Command("pull")
 
     let result;
     try {
-      result = await callCliSync(
-        "pull",
-        { project_id: config.projectId },
-        creds.api_key,
-      );
+      result = await executePull(config);
     } catch (err) {
       spinner.stop("Pull failed.");
       p.log.error(err instanceof Error ? err.message : "Unknown error");
       process.exit(1);
     }
 
-    const { wordings, languages, namespaces } = result;
-
-    spinner.stop(
-      `${wordings.length} keys, ${languages.length} languages, ${namespaces.length} namespace(s)`,
-    );
-
-    if (wordings.length === 0) {
-      p.log.warn("No translations found in this project.");
+    if (result.wordings === 0) {
+      spinner.stop("No translations found in this project.");
       p.outro("Add translations in the dashboard first, then pull again.");
       return;
     }
 
-    const writeSpinner = p.spinner();
-    writeSpinner.start("Writing files...");
-
-    try {
-      const parser = getParser(config.format);
-      parser.write(config.localesDir, wordings, languages);
-      writeSpinner.stop("Files written");
-    } catch (err) {
-      writeSpinner.stop("Failed to write files.");
-      p.log.error(err instanceof Error ? err.message : "Could not write to disk.");
-      process.exit(1);
-    }
-
-    const typeSpinner = p.spinner();
-    typeSpinner.start("Generating types...");
-
-    try {
-      const typeDefs = generateTypeDefinitions(wordings, config.sourceLocale);
-      const typesPath = path.join(config.localesDir, "i1n.d.ts");
-      fs.mkdirSync(path.dirname(typesPath), { recursive: true });
-      fs.writeFileSync(typesPath, typeDefs, "utf-8");
-      typeSpinner.stop(`Types generated at ${typesPath}`);
-    } catch (err) {
-      typeSpinner.stop("Failed to generate types.");
-      p.log.error(err instanceof Error ? err.message : "Unknown error");
-    }
-
-    p.outro(
-      `${wordings.length} keys across ${languages.length} languages`,
+    spinner.stop(
+      `${result.wordings} keys across ${result.languages} languages written`,
     );
+
+    p.outro("Done!");
   });

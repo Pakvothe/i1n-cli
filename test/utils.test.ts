@@ -5,7 +5,8 @@ import os from "node:os";
 import { extractVariables, replaceVariables } from "../src/shared/variables.js";
 import { flattenObject, unflattenObject } from "../src/parsers/utils.js";
 import { generateTypeDefinitions } from "../src/shared/codegen.js";
-import { readProjectConfig, writeProjectConfig, projectConfigExists } from "../src/shared/config.js";
+import { readProjectConfig, writeProjectConfig, projectConfigExists, ensureGitignore } from "../src/shared/config.js";
+import { readPushState, writePushState, getChangedWordings } from "../src/shared/push-state.js";
 import type { Wording, I1nProjectConfig } from "../src/shared/types.js";
 
 describe("extractVariables", () => {
@@ -212,6 +213,7 @@ describe("project config", () => {
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   const validConfig: I1nProjectConfig = {
+    apiKey: "i1n_0123456789abcdef0123456789abcdef",
     projectId: "550e8400-e29b-41d4-a716-446655440000",
     localesDir: "locales",
     sourceLocale: "en",
@@ -264,5 +266,120 @@ describe("project config", () => {
     expect(projectConfigExists(dir)).toBe(false);
     writeProjectConfig(validConfig, dir);
     expect(projectConfigExists(dir)).toBe(true);
+  });
+});
+
+describe("ensureGitignore", () => {
+  let dir: string;
+
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "i1n-git-")); });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("creates .gitignore with both entries if none exists", () => {
+    ensureGitignore(dir);
+    const content = fs.readFileSync(path.join(dir, ".gitignore"), "utf-8");
+    expect(content).toContain("i1n.config.json");
+    expect(content).toContain("**/.i1n-push-state.json");
+  });
+
+  it("appends missing entries to existing .gitignore", () => {
+    fs.writeFileSync(path.join(dir, ".gitignore"), "node_modules\n");
+    ensureGitignore(dir);
+    const content = fs.readFileSync(path.join(dir, ".gitignore"), "utf-8");
+    expect(content).toContain("node_modules");
+    expect(content).toContain("i1n.config.json");
+    expect(content).toContain("**/.i1n-push-state.json");
+  });
+
+  it("does not duplicate entries if already present", () => {
+    ensureGitignore(dir);
+    ensureGitignore(dir);
+    const content = fs.readFileSync(path.join(dir, ".gitignore"), "utf-8");
+    const configMatches = content.match(/i1n\.config\.json/g);
+    expect(configMatches?.length).toBe(1);
+  });
+
+  it("appends only the missing entry if one is already present", () => {
+    fs.writeFileSync(path.join(dir, ".gitignore"), "i1n.config.json\n");
+    ensureGitignore(dir);
+    const content = fs.readFileSync(path.join(dir, ".gitignore"), "utf-8");
+    expect(content).toContain("**/.i1n-push-state.json");
+    const configMatches = content.match(/i1n\.config\.json/g);
+    expect(configMatches?.length).toBe(1);
+  });
+});
+
+describe("push state", () => {
+  let dir: string;
+
+  const wordings: Wording[] = [
+    { key: "title", namespace: "common", value_json: { en_us: "Hello" } },
+    { key: "greeting", namespace: "common", value_json: { en_us: "Hi {name}" } },
+    { key: "save", namespace: "buttons", value_json: { en_us: "Save" } },
+  ];
+
+  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "i1n-push-")); });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("returns empty state when no file exists", () => {
+    const state = readPushState(dir);
+    expect(state).toEqual({});
+  });
+
+  it("writes and reads state", () => {
+    writePushState(wordings, dir);
+    const state = readPushState(dir);
+    expect(Object.keys(state).length).toBe(3);
+    expect(state["common:title"]).toBeDefined();
+    expect(state["common:greeting"]).toBeDefined();
+    expect(state["buttons:save"]).toBeDefined();
+  });
+
+  it("returns all wordings as changed on first push (no state file)", () => {
+    const { changed, unchanged } = getChangedWordings(wordings, dir);
+    expect(changed.length).toBe(3);
+    expect(unchanged).toBe(0);
+  });
+
+  it("returns no changes when nothing changed", () => {
+    writePushState(wordings, dir);
+    const { changed, unchanged } = getChangedWordings(wordings, dir);
+    expect(changed.length).toBe(0);
+    expect(unchanged).toBe(3);
+  });
+
+  it("detects changed wordings", () => {
+    writePushState(wordings, dir);
+
+    const modified = [
+      { key: "title", namespace: "common", value_json: { en_us: "Hello World" } },
+      { key: "greeting", namespace: "common", value_json: { en_us: "Hi {name}" } },
+      { key: "save", namespace: "buttons", value_json: { en_us: "Save" } },
+    ];
+
+    const { changed, unchanged } = getChangedWordings(modified, dir);
+    expect(changed.length).toBe(1);
+    expect(changed[0].key).toBe("title");
+    expect(unchanged).toBe(2);
+  });
+
+  it("detects new wordings as changed", () => {
+    writePushState(wordings, dir);
+
+    const withNew = [
+      ...wordings,
+      { key: "cancel", namespace: "buttons", value_json: { en_us: "Cancel" } },
+    ];
+
+    const { changed, unchanged } = getChangedWordings(withNew, dir);
+    expect(changed.length).toBe(1);
+    expect(changed[0].key).toBe("cancel");
+    expect(unchanged).toBe(3);
+  });
+
+  it("handles corrupt state file gracefully", () => {
+    fs.writeFileSync(path.join(dir, ".i1n-push-state.json"), "not json", "utf-8");
+    const state = readPushState(dir);
+    expect(state).toEqual({});
   });
 });

@@ -37,6 +37,56 @@ const LOCALE_DIRS = [
 
 const LOCALE_CODE_PATTERN = /^[a-z]{2}([_-][a-zA-Z]{2,4})?$/;
 
+/**
+ * Detects only the framework from dependencies/project files,
+ * without requiring existing locale files.
+ */
+export function detectFramework(root: string): { framework: Framework; format: Format } | null {
+  const pkgPath = path.join(root, "package.json");
+  if (fs.existsSync(pkgPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
+      const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+      for (const signal of DEP_SIGNALS) {
+        if (signal.dep in allDeps) {
+          return { framework: signal.framework, format: signal.format };
+        }
+      }
+    } catch {
+      // invalid package.json
+    }
+  }
+
+  const pubspecPath = path.join(root, "pubspec.yaml");
+  if (fs.existsSync(pubspecPath)) {
+    const content = fs.readFileSync(pubspecPath, "utf-8");
+    if (content.includes("flutter_localizations") || content.includes("intl")) {
+      return { framework: "flutter", format: "arb" };
+    }
+  }
+
+  const gemfilePath = path.join(root, "Gemfile");
+  if (fs.existsSync(gemfilePath)) {
+    const content = fs.readFileSync(gemfilePath, "utf-8");
+    if (content.includes("rails")) {
+      return { framework: "rails", format: "yaml" };
+    }
+  }
+
+  // Check for Android/iOS project markers
+  if (fs.existsSync(path.join(root, "AndroidManifest.xml")) ||
+      fs.existsSync(path.join(root, "app/src/main/AndroidManifest.xml"))) {
+    return { framework: "android", format: "android-xml" };
+  }
+
+  if (fs.existsSync(path.join(root, "Info.plist")) ||
+      fs.existsSync(path.join(root, "Runner.xcodeproj"))) {
+    return { framework: "ios", format: "apple-strings" };
+  }
+
+  return null;
+}
+
 export function detect(root: string): DetectionResult | null {
   const fromDeps = detectFromDependencies(root);
   if (fromDeps) return fromDeps;

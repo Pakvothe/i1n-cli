@@ -42,27 +42,41 @@ That's it. `init` detects your framework, format, and locale directory automatic
 Interactive setup that:
 
 1. Authenticates with your API key (from the [i1n dashboard](https://i1n.ai))
-2. Auto-detects your i18n framework, file format, locale directory, and source language
-3. Saves config to `i1n.config.json`
+2. Selects your project (if your organization has multiple)
+3. Auto-detects your i18n framework, file format, locale directory, and source language
+4. Saves config to `i1n.config.json` (auto-added to `.gitignore`)
+5. Optionally sets up AI assistant rules for your coding tools
 
 If detection doesn't match, you can configure everything manually — choose your locale directory, source language, and file format from the supported list.
 
 ### `i1n push`
 
-Reads your local translation files and syncs them to i1n. New keys are created, existing keys are updated.
+Reads your local translation files and syncs them to i1n. New keys are created, existing keys are updated (merge, not overwrite).
+
+After pushing, the CLI automatically checks for missing translations. If any are found, it shows a cost estimate and asks if you want to translate:
+
+```
+◇ 42 keys synced (5 created, 37 updated)
+◇ Missing translations found
+│  Available credits: 580 / 600 WU
+│  Estimated cost: 13.4 WU
+│    8 from cache @ 0.2 WU = 1.6 WU
+│    12 via AI @ 1.0 WU = 12.0 WU
+◆ Translate now? › Yes / No
+```
+
+Smart Translate checks the cache first — only cache misses are sent for AI translation, so you only pay for genuinely new translations.
 
 ```bash
-# Push translations
+# Push (will prompt to translate if missing translations are found)
 i1n push
 
-# Push and trigger Smart Translate for all languages
+# Push and auto-translate without prompting
 i1n push --translate
 
 # Push and translate specific languages only
-i1n push --translate es,fr,pt_br
+i1n push --translate es_es,fr_fr,pt_br
 ```
-
-Smart Translate uses a 5-tier cache system. Only cache misses are sent for AI translation, so you're only charged for new translations.
 
 ### `i1n pull`
 
@@ -71,6 +85,27 @@ Pulls translations from i1n and writes them to your locale files. Also generates
 ```bash
 i1n pull
 ```
+
+### `i1n setup-ai`
+
+Generates AI assistant rules so your coding tool knows how to work with i1n in your project — translation file structure, CLI commands, and best practices.
+
+```bash
+i1n setup-ai
+```
+
+Supports:
+
+| Tool | File generated |
+| --- | --- |
+| Claude Code | `CLAUDE.md` |
+| Cursor | `.cursor/rules/i1n.mdc` |
+| Windsurf | `.windsurfrules` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
+| Codex (OpenAI / OpenCode) | `AGENTS.md` |
+| Antigravity | `.antigravity/rules.md` |
+
+You can also set this up during `i1n init`. The generated content is specific to your project's format, locale directory, and framework.
 
 ## Supported Formats
 
@@ -94,7 +129,7 @@ The CLI works on its own — you don't need the SDK. But if you want a type-safe
 import { init, t } from "i1n";
 
 init({
-  locale: "en",
+  locale: "en_us",
   translations: {
     common: {
       greeting: "Hello {name}",
@@ -146,39 +181,41 @@ All three are detected and replaced automatically. Use whichever matches your ex
 
 ## Configuration
 
-### `i1n.config.json` (project)
+### `i1n.config.json`
 
-Created by `i1n init` in your project root:
+Created by `i1n init` in your project root. Contains your API key and project settings:
 
 ```json
 {
+  "apiKey": "i1n_...",
   "projectId": "your-project-uuid",
   "localesDir": "locales",
-  "sourceLocale": "en",
+  "sourceLocale": "en_us",
   "format": "nested-json",
   "framework": "i18next"
 }
 ```
 
-### `~/.i1n/config.json` (global)
+This file is automatically added to `.gitignore` during `i1n init` because it contains your API key. Each project has its own config — if you work on multiple projects, each one has its own `i1n.config.json` with its own API key.
 
-Stores your authentication credentials. Created during `i1n init`:
+## Credits & Billing
 
-```json
-{
-  "api_key": "i1n_...",
-  "project_id": "your-project-uuid"
-}
-```
+i1n uses **Wording Units (WU)** for translation billing:
+
+- **AI translation**: 1.0 WU per item (flat rate)
+- **Cache hit**: 0.01–0.2 WU per item (depends on your plan)
+
+The `i1n push` command shows your available credits and estimated cost before translating. Credits refill automatically based on your plan cycle (weekly for Starter, monthly for paid plans).
 
 ## Error Handling
 
 The CLI gives explicit feedback when something goes wrong:
 
 - **Corrupt files** — warns you with the file path and error, continues processing valid files
-- **Invalid format** — tells you which file failed and why (e.g., "Expected a JSON object but found a different type")
+- **Invalid format** — tells you which file failed and why
 - **Missing directory** — tells you to check your `localesDir` config
 - **No keys found** — suggests checking your format setting
+- **Insufficient credits** — warns you before translating
 
 Warnings are never silently ignored.
 

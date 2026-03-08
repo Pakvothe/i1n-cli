@@ -19,12 +19,8 @@ export type Framework =
   | "ios"
   | "generic";
 
-export interface I1nCredentials {
-  api_key: string;
-  project_id: string;
-}
-
 export interface I1nProjectConfig {
+  apiKey: string;
   projectId: string;
   localesDir: string;
   sourceLocale: string;
@@ -84,8 +80,27 @@ export interface TranslateResponse {
   credits_used: number;
 }
 
+export interface EstimateTranslateResponse {
+  available_credits: number;
+  credits_limit: number;
+  plan_id: string;
+  cache_cost_per_item: number;
+  ai_cost_per_item: number;
+  cache_count: number;
+  ai_count: number;
+  estimated_cost: number;
+  languages: { code: string; cached: number; ai: number }[];
+}
+
+export interface TranslationProgressResponse {
+  total: number;
+  completed: number;
+  remaining: number;
+  status: "processing" | "done";
+}
+
 export interface ValidateResponse {
   org_id: string;
   org_name: string;
-  projects: { id: string; name: string }[];
+  projects: { id: string; name: string; used_languages: string[] }[];
 }

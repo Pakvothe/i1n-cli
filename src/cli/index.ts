@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { initCommand } from "./commands/init.js";
 import { pushCommand } from "./commands/push.js";
 import { pullCommand } from "./commands/pull.js";
+import { setupAiCommand } from "./commands/setup-ai.js";
 
 const program = new Command();
 
@@ -13,5 +14,6 @@ program
 program.addCommand(initCommand);
 program.addCommand(pushCommand);
 program.addCommand(pullCommand);
+program.addCommand(setupAiCommand);
 
 program.parse();
