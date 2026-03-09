@@ -1,5 +1,5 @@
 import { replaceVariables } from "../shared/variables.js";
-
+import { UNSAFE_KEYS } from "../parsers/utils.js";
 // ─── Types ───────────────────────────────────────────────────────────
 export type EngineFn = (key: string, params?: Record<string, any>) => string;
 
@@ -14,6 +14,7 @@ let engineFn: EngineFn | null = null;
  * Resolve a dot-notation key against a resource bundle.
  * Tries nested navigation first, then literal flat key lookup.
  */
+
 function resolveKey(bundle: any, key: string): string | undefined {
   if (!bundle || typeof bundle !== "object") return undefined;
 
@@ -21,7 +22,15 @@ function resolveKey(bundle: any, key: string): string | undefined {
   const parts = key.split(".");
   let current: any = bundle;
   for (const part of parts) {
-    if (current == null || typeof current !== "object") {
+    if (
+      current == null ||
+      typeof current !== "object" ||
+      UNSAFE_KEYS.has(part)
+    ) {
+      current = undefined;
+      break;
+    }
+    if (!Object.prototype.hasOwnProperty.call(current, part)) {
       current = undefined;
       break;
     }
@@ -31,7 +40,12 @@ function resolveKey(bundle: any, key: string): string | undefined {
   if (typeof current === "string") return current;
 
   // 2. Fallback: try literal flat key lookup
-  if (typeof bundle[key] === "string") return bundle[key];
+  if (
+    Object.prototype.hasOwnProperty.call(bundle, key) &&
+    typeof bundle[key] === "string"
+  ) {
+    return bundle[key];
+  }
 
   return undefined;
 }
@@ -44,10 +58,14 @@ function resolvePlural(
   count: number,
 ): string | undefined {
   if (count === 0) {
-    return resolveKey(bundle, `${key}_zero`) ?? resolveKey(bundle, `${key}_other`);
+    return (
+      resolveKey(bundle, `${key}_zero`) ?? resolveKey(bundle, `${key}_other`)
+    );
   }
   if (count === 1) {
-    return resolveKey(bundle, `${key}_one`) ?? resolveKey(bundle, `${key}_other`);
+    return (
+      resolveKey(bundle, `${key}_one`) ?? resolveKey(bundle, `${key}_other`)
+    );
   }
   return resolveKey(bundle, `${key}_other`);
 }
@@ -121,8 +139,13 @@ export function t(key: string, variables?: Record<string, any>): string {
   }
 
   if (value === undefined) {
-    if (typeof process !== "undefined" && process.env?.NODE_ENV !== "production") {
-      console.warn(`[i1n] Missing translation: "${key}" for locale "${currentLocale}"`);
+    if (
+      typeof process !== "undefined" &&
+      process.env?.NODE_ENV !== "production"
+    ) {
+      console.warn(
+        `[i1n] Missing translation: "${key}" for locale "${currentLocale}"`,
+      );
     }
     return key;
   }

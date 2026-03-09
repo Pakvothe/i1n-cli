@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import type { I1nParser, Language, ParseResult, ParseWarning, Wording } from "../shared/types.js";
-import { flattenObject, unflattenObject } from "./utils.js";
+import { flattenObject, unflattenObject, UNSAFE_KEYS, safePathSegment } from "./utils.js";
 
 export const yamlParser: I1nParser = {
   extensions: [".yml", ".yaml"],
@@ -86,18 +86,23 @@ export const yamlParser: I1nParser = {
         const fullKey = `${wording.namespace}.${wording.key}`;
         const parts = fullKey.split(".");
         let current = nested;
+        let skip = false;
 
         for (let i = 0; i < parts.length - 1; i++) {
+          if (UNSAFE_KEYS.has(parts[i])) { skip = true; break; }
           if (!(parts[i] in current)) {
             current[parts[i]] = {};
           }
           current = current[parts[i]] as Record<string, unknown>;
         }
-        current[parts[parts.length - 1]] = value;
+        const lastPart = parts[parts.length - 1];
+        if (!skip && !UNSAFE_KEYS.has(lastPart)) {
+          current[lastPart] = value;
+        }
       }
 
       const doc = { [lang.code]: unflattenObject(flattenObject(nested as Record<string, unknown>)) };
-      const filePath = path.join(fullDir, `${lang.code}.yml`);
+      const filePath = path.join(fullDir, `${safePathSegment(lang.code)}.yml`);
       fs.writeFileSync(filePath, YAML.stringify(doc, { indent: 2 }), "utf-8");
     }
   },

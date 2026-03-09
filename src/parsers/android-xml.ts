@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { I1nParser, Language, ParseResult, ParseWarning, Wording } from "../shared/types.js";
+import { safePathSegment } from "./utils.js";
 
 const STRING_REGEX = /<string\s+name="([^"]+)">([\s\S]*?)<\/string>/g;
 const PLURAL_REGEX = /<plurals\s+name="([^"]+)">([\s\S]*?)<\/plurals>/g;
@@ -101,7 +102,8 @@ export const androidXmlParser: I1nParser = {
     const fullDir = path.resolve(localesDir);
 
     for (const lang of languages) {
-      const dirName = lang.code === "en" ? "values" : `values-${lang.code}`;
+      const safeLang = safePathSegment(lang.code);
+      const dirName = safeLang === "en" ? "values" : `values-${safeLang}`;
       const langDir = path.join(fullDir, dirName);
       fs.mkdirSync(langDir, { recursive: true });
 
@@ -112,7 +114,7 @@ export const androidXmlParser: I1nParser = {
       for (const wording of sorted) {
         const value = wording.value_json[lang.code];
         if (value === undefined) continue;
-        lines.push(`    <string name="${wording.key}">${escapeXml(value)}</string>`);
+        lines.push(`    <string name="${escapeXml(wording.key)}">${escapeXml(value)}</string>`);
       }
 
       lines.push("</resources>", "");

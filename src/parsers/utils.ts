@@ -1,5 +1,19 @@
+import path from "node:path";
+
 const MAX_DEPTH = 50;
-const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+export const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * Sanitize a path segment (namespace, lang code) to prevent path traversal.
+ * Strips directory separators, "..", and ensures it's a simple filename.
+ */
+export function safePathSegment(segment: string): string {
+  const base = path.basename(segment);
+  if (!base || base === "." || base === "..") {
+    throw new Error(`Invalid path segment: "${segment}"`);
+  }
+  return base;
+}
 
 export function flattenObject(
   obj: Record<string, unknown>,

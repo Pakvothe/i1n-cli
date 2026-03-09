@@ -4,8 +4,17 @@ import type { Wording } from "./types.js";
 const PLURAL_SUFFIXES = ["_zero", "_one", "_other"] as const;
 
 /** Escape special characters for use inside a TypeScript string literal. */
+const ESCAPE_MAP: Record<string, string> = {
+  "\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t", "\0": "\\0",
+};
 function escapeKey(key: string): string {
-  return key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return key.replace(/[\\"'\n\r\t\0]/g, (ch) => ESCAPE_MAP[ch] ?? ch);
+}
+
+/** Check if a name is a valid JS identifier (safe to use unquoted as TS property). */
+const SAFE_IDENT = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
+function safeProp(name: string): string {
+  return SAFE_IDENT.test(name) ? name : `"${escapeKey(name)}"`;
 }
 
 /**
@@ -68,7 +77,7 @@ export function generateTypeDefinitions(
         // Always include count: number for plural keys
         const props = ["count: number"];
         for (const v of vars) {
-          if (v !== "count") props.push(`${v}: string`);
+          if (v !== "count") props.push(`${safeProp(v)}: string`);
         }
         lines.push(`    "${escapeKey(base)}": { ${props.join("; ")} };`);
       }
@@ -81,7 +90,7 @@ export function generateTypeDefinitions(
     if (vars.length === 0) {
       lines.push(`    "${escapeKey(fullKey)}": Record<string, never>;`);
     } else {
-      const props = vars.map((v) => `${v}: string`).join("; ");
+      const props = vars.map((v) => `${safeProp(v)}: string`).join("; ");
       lines.push(`    "${escapeKey(fullKey)}": { ${props} };`);
     }
   }

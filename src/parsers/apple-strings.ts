@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { I1nParser, Language, ParseResult, ParseWarning, Wording } from "../shared/types.js";
+import { safePathSegment } from "./utils.js";
 
 const ENTRY_REGEX = /^\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*=\s*"([^"\\]*(?:\\.[^"\\]*)*)"\s*;/gm;
 const COMMENT_REGEX = /\/\*\s*(.*?)\s*\*\/\s*\n\s*"([^"]+)"/g;
@@ -89,7 +90,7 @@ export const appleStringsParser: I1nParser = {
     const fullDir = path.resolve(localesDir);
 
     for (const lang of languages) {
-      const langDir = path.join(fullDir, `${lang.code}.lproj`);
+      const langDir = path.join(fullDir, `${safePathSegment(lang.code)}.lproj`);
       fs.mkdirSync(langDir, { recursive: true });
 
       const lines: string[] = [];
@@ -100,7 +101,7 @@ export const appleStringsParser: I1nParser = {
         if (value === undefined) continue;
 
         if (wording.description) {
-          lines.push(`/* ${wording.description} */`);
+          lines.push(`/* ${wording.description.replace(/\*\//g, "* /")} */`);
         }
         lines.push(`"${escapeStrings(wording.key)}" = "${escapeStrings(value)}";`);
         lines.push("");

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { I1nParser, Language, ParseResult, ParseWarning, Wording } from "../shared/types.js";
+import { safePathSegment } from "./utils.js";
 
 export const arbParser: I1nParser = {
   extensions: [".arb"],
@@ -98,7 +99,7 @@ export const arbParser: I1nParser = {
         }
       }
 
-      const filePath = path.join(fullDir, `app_${lang.code}.arb`);
+      const filePath = path.join(fullDir, `app_${safePathSegment(lang.code)}.arb`);
       fs.writeFileSync(filePath, JSON.stringify(arb, null, 2) + "\n", "utf-8");
     }
   },

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { I1nParser, Language, ParseResult, ParseWarning, Wording } from "../shared/types.js";
-import { flattenObject, unflattenObject } from "./utils.js";
+import { flattenObject, unflattenObject, safePathSegment } from "./utils.js";
 
 const LOCALE_PATTERN = /^[a-z]{2}([_-][a-zA-Z]{2,4})?$/;
 
@@ -99,12 +99,12 @@ export const jsonNestedParser: I1nParser = {
     }
 
     for (const [lang, namespaces] of grouped) {
-      const langDir = path.join(fullDir, lang);
+      const langDir = path.join(fullDir, safePathSegment(lang));
       fs.mkdirSync(langDir, { recursive: true });
 
       for (const [namespace, flat] of namespaces) {
         const nested = unflattenObject(flat);
-        const filePath = path.join(langDir, `${namespace}.json`);
+        const filePath = path.join(langDir, `${safePathSegment(namespace)}.json`);
         fs.writeFileSync(filePath, JSON.stringify(nested, null, 2) + "\n", "utf-8");
       }
     }
