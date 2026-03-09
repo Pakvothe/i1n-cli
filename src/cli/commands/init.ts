@@ -50,6 +50,29 @@ export const initCommand = new Command("init")
     let apiKey: string;
     let validateResult;
     while (true) {
+      const option = await p.select({
+        message: "Connect to i1n",
+        options: [
+          { value: "paste", label: "Paste API key", hint: "Recommended" },
+          { value: "none", label: "I don't have an API key" },
+        ],
+      });
+
+      if (p.isCancel(option)) {
+        p.cancel("Cancelled.");
+        return;
+      }
+
+      if (option === "none") {
+        p.note(
+          "  • If you were invited to an organization: Ask your admin for the API key.\n" +
+            "  • If you want to start a new project: Go to https://i1n.ai, create an organization, and copy the key from the dashboard.",
+          "How to get your API key",
+        );
+        p.outro("Come back once you have your key!");
+        return;
+      }
+
       const input = await p.text({
         message: "Paste your API key (from your i1n dashboard)",
         placeholder: "i1n_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
@@ -61,7 +84,9 @@ export const initCommand = new Command("init")
       }
 
       if (!API_KEY_REGEX.test(input)) {
-        p.log.warn("Invalid API key. Try again with a valid key.");
+        p.log.warn(
+          "Invalid API key format. Should start with 'i1n_' followed by 32 characters.",
+        );
         continue;
       }
 
@@ -74,7 +99,7 @@ export const initCommand = new Command("init")
         apiKey = input;
         break;
       } catch {
-        spinner.stop("Invalid API key. Try again with a valid key.");
+        spinner.stop("Invalid API key. Please check your key and try again.");
       }
     }
 

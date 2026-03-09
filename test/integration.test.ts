@@ -54,6 +54,7 @@ mock.module("@clack/prompts", () => ({
     stop: mock(),
     message: mock(),
   }),
+  note: mock(),
   isCancel: (val: any) => val === Symbol.for("clack:cancel"),
   log: {
     info: mock(),
@@ -160,9 +161,16 @@ describe("CLI Integration Suite", () => {
         .mockResolvedValueOnce({ tone_preset: "formal", brand_voice: "" }) // settings
         .mockResolvedValueOnce({ wordings: [], languages: [], namespaces: [] }); // pull
 
+      (prompts.select as any)
+        .mockResolvedValueOnce("paste") // Connection choice
+        .mockResolvedValueOnce("proj_1"); // Project select
+
+      (prompts.select as any)
+        .mockResolvedValueOnce("paste") // Connection choice
+        .mockResolvedValueOnce("proj_2"); // Project select
       await initCommand.parseAsync([], { from: "user" });
 
-      const selectCall = (prompts.select as any).mock.calls[0][0];
+      const selectCall = (prompts.select as any).mock.calls[1][0];
       expect(selectCall.options).toContainEqual({
         value: "proj_2",
         label: "Legacy Portal (locked - upgrade your plan)",
@@ -173,18 +181,17 @@ describe("CLI Integration Suite", () => {
     it("should retry on invalid API key then succeed", async () => {
       (supabase.callCliSync as any)
         .mockRejectedValueOnce(new Error("Invalid API key"))
-        .mockResolvedValue({
+        .mockResolvedValueOnce({
           org_id: "org_123",
           org_name: "Acme Corp",
           projects: [
             { id: "proj_1", name: "P1", is_locked: false, used_languages: [] },
           ],
-          tone_preset: "formal",
-          wordings: [],
-          languages: [],
-          namespaces: [],
-        });
+        })
+        .mockResolvedValueOnce({ tone_preset: "formal", brand_voice: "" }) // settings
+        .mockResolvedValueOnce({ wordings: [], languages: [], namespaces: [] }); // pull
 
+      (prompts.select as any).mockResolvedValue("paste");
       (prompts.text as any)
         .mockResolvedValueOnce("bad_key")
         .mockResolvedValue("i1n_0123456789abcdef0123456789abcdef");
@@ -197,9 +204,23 @@ describe("CLI Integration Suite", () => {
     });
 
     it("should abort gracefully on user cancel", async () => {
-      (prompts.text as any).mockResolvedValueOnce(Symbol.for("clack:cancel"));
+      (prompts.select as any).mockResolvedValueOnce(Symbol.for("clack:cancel"));
       await initCommand.parseAsync([], { from: "user" });
       expect(prompts.cancel).toHaveBeenCalled();
+    });
+
+    it("should provide guidance when 'I don't have an API key' is selected", async () => {
+      (prompts.select as any).mockResolvedValueOnce("none");
+
+      await initCommand.parseAsync([], { from: "user" });
+
+      expect(prompts.note).toHaveBeenCalledWith(
+        expect.stringContaining("If you were invited to an organization"),
+        "How to get your API key",
+      );
+      expect(prompts.outro).toHaveBeenCalledWith(
+        expect.stringContaining("Come back once you have your key"),
+      );
     });
   });
 
