@@ -3,6 +3,11 @@ import type { Wording } from "./types.js";
 
 const PLURAL_SUFFIXES = ["_zero", "_one", "_other"] as const;
 
+/** Escape special characters for use inside a TypeScript string literal. */
+function escapeKey(key: string): string {
+  return key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 /**
  * Check if a key is a plural variant (ends with _zero, _one, or _other).
  */
@@ -65,7 +70,7 @@ export function generateTypeDefinitions(
         for (const v of vars) {
           if (v !== "count") props.push(`${v}: string`);
         }
-        lines.push(`    "${base}": { ${props.join("; ")} };`);
+        lines.push(`    "${escapeKey(base)}": { ${props.join("; ")} };`);
       }
       continue;
     }
@@ -74,10 +79,10 @@ export function generateTypeDefinitions(
     const vars = extractVariables(sourceText);
 
     if (vars.length === 0) {
-      lines.push(`    "${fullKey}": Record<string, never>;`);
+      lines.push(`    "${escapeKey(fullKey)}": Record<string, never>;`);
     } else {
       const props = vars.map((v) => `${v}: string`).join("; ");
-      lines.push(`    "${fullKey}": { ${props} };`);
+      lines.push(`    "${escapeKey(fullKey)}": { ${props} };`);
     }
   }
 
