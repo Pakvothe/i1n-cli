@@ -66,6 +66,7 @@ export interface I1nParser {
 export interface PushResponse {
   created: number;
   updated: number;
+  warning?: string;
 }
 
 export interface PullResponse {
@@ -102,10 +103,20 @@ export interface TranslationProgressResponse {
 export interface ValidateResponse {
   org_id: string;
   org_name: string;
-  projects: { id: string; name: string; used_languages: string[] }[];
+  projects: {
+    id: string;
+    name: string;
+    used_languages: string[];
+    is_locked: boolean;
+  }[];
 }
 
-export type TonePreset = "formal" | "friendly" | "technical" | "concise" | "custom";
+export type TonePreset =
+  | "formal"
+  | "friendly"
+  | "technical"
+  | "concise"
+  | "custom";
 
 export interface ProjectSettingsResponse {
   tone_preset: TonePreset;
@@ -114,6 +125,7 @@ export interface ProjectSettingsResponse {
 
 export interface ProjectLimitsResponse {
   plan_id: string;
+  is_locked: boolean;
   wordings: { used: number; limit: number };
   credits: { used: number; limit: number };
   languages: {
@@ -123,7 +135,12 @@ export interface ProjectLimitsResponse {
     remaining_slots: number;
   };
   supported_codes: string[];
-  available_languages: { code: string; name: string; flag: string; language: string }[];
+  available_languages: {
+    code: string;
+    name: string;
+    flag: string;
+    language: string;
+  }[];
 }
 
 export interface AddLanguageResponse {

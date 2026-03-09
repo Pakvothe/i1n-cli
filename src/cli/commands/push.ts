@@ -8,7 +8,11 @@ import { getParser } from "../../parsers/index.js";
 import { getChangedWordings, writePushState } from "../../shared/push-state.js";
 import { normalizeWordingLanguages } from "../../shared/languages.js";
 import { executePull } from "./pull.js";
-import type { EstimateTranslateResponse, ProjectLimitsResponse, TranslationProgressResponse } from "../../shared/types.js";
+import type {
+  EstimateTranslateResponse,
+  ProjectLimitsResponse,
+  TranslationProgressResponse,
+} from "../../shared/types.js";
 
 /**
  * Polls translation progress until done. Updates spinner message with % and ETA.
@@ -48,9 +52,10 @@ async function waitForTranslation(
     if (elapsed > 5 && completed > 0) {
       const rate = completed / elapsed;
       const remainingSeconds = Math.ceil(remaining / rate);
-      etaText = remainingSeconds > 60
-        ? `~${Math.ceil(remainingSeconds / 60)} min`
-        : `~${remainingSeconds} sec`;
+      etaText =
+        remainingSeconds > 60
+          ? `~${Math.ceil(remainingSeconds / 60)} min`
+          : `~${remainingSeconds} sec`;
     }
 
     const msg = `Translating... ${percentage}% (${completed}/${total}) • ETA: ${etaText}`;
@@ -75,7 +80,9 @@ export const pushCommand = new Command("push")
     const localesPath = path.resolve(config.localesDir);
     if (!fs.existsSync(localesPath)) {
       p.log.error(`Directory not found: ${config.localesDir}`);
-      p.log.info("Update localesDir in i1n.config.json or run `i1n init` again.");
+      p.log.info(
+        "Update localesDir in i1n.config.json or run `i1n init` again.",
+      );
       process.exit(1);
     }
 
@@ -85,7 +92,10 @@ export const pushCommand = new Command("push")
     spinner.start("Reading local files...");
 
     const parser = getParser(config.format);
-    const { wordings, warnings } = parser.read(config.localesDir, config.sourceLocale);
+    const { wordings, warnings } = parser.read(
+      config.localesDir,
+      config.sourceLocale,
+    );
 
     if (warnings.length > 0) {
       spinner.stop("Issues found while reading files");
@@ -125,6 +135,15 @@ export const pushCommand = new Command("push")
       return;
     }
 
+    if (limits.is_locked) {
+      limitsSpinner.stop("Project is locked (Read-Only).");
+      p.log.error(
+        "This project is locked due to plan limits. Please upgrade to enable pushing translations.",
+      );
+      p.outro("Push aborted.");
+      return;
+    }
+
     limitsSpinner.stop("Limits checked");
 
     // Normalize language codes and validate
@@ -157,12 +176,16 @@ export const pushCommand = new Command("push")
       }
     }
 
-    const newLangs = [...localLangs].filter((c) => !limits.languages.used.includes(c));
+    const newLangs = [...localLangs].filter(
+      (c) => !limits.languages.used.includes(c),
+    );
     const exceededLangs = new Set<string>();
 
     if (newLangs.length > limits.languages.remaining_slots) {
       // Only allow up to remaining_slots new languages
-      const allowed = new Set(newLangs.slice(0, limits.languages.remaining_slots));
+      const allowed = new Set(
+        newLangs.slice(0, limits.languages.remaining_slots),
+      );
       for (const lang of newLangs) {
         if (!allowed.has(lang)) exceededLangs.add(lang);
       }
@@ -176,7 +199,7 @@ export const pushCommand = new Command("push")
 
       p.log.warn(
         `Language limit reached (${limits.languages.used.length}/${limits.languages.limit}). ` +
-        `Skipping: ${[...exceededLangs].join(", ")}. Upgrade your plan to add more languages.`,
+          `Skipping: ${[...exceededLangs].join(", ")}. Upgrade your plan to add more languages.`,
       );
     }
 
@@ -187,7 +210,7 @@ export const pushCommand = new Command("push")
       wordings.splice(wordingCapacity);
       p.log.warn(
         `Wording limit reached (${limits.wordings.used}/${limits.wordings.limit}). ` +
-        `Pushing ${wordingCapacity} keys, skipping ${excess}. Upgrade your plan to increase the limit.`,
+          `Pushing ${wordingCapacity} keys, skipping ${excess}. Upgrade your plan to increase the limit.`,
       );
     }
 
@@ -197,13 +220,18 @@ export const pushCommand = new Command("push")
     }
 
     // Diff against last push state
-    const { changed, unchanged } = getChangedWordings(wordings, config.localesDir);
+    const { changed, unchanged } = getChangedWordings(
+      wordings,
+      config.localesDir,
+    );
 
     if (changed.length === 0) {
       p.log.info(`No changes detected (${unchanged} keys unchanged)`);
     } else {
       if (unchanged > 0) {
-        p.log.info(`${changed.length} changed, ${unchanged} unchanged (skipped)`);
+        p.log.info(
+          `${changed.length} changed, ${unchanged} unchanged (skipped)`,
+        );
       }
 
       // Push only changed wordings
@@ -225,6 +253,11 @@ export const pushCommand = new Command("push")
           );
           totalCreated += result.created;
           totalUpdated += result.updated;
+          if (result.warning) {
+            pushSpinner.stop("Push completed with warnings.");
+            p.log.warn(result.warning);
+            pushSpinner.start("Continuing push...");
+          }
         } catch (err) {
           pushSpinner.stop("Push failed.");
           p.log.error(err instanceof Error ? err.message : "Unknown error");
@@ -277,19 +310,27 @@ export const pushCommand = new Command("push")
     // Show estimate breakdown
     estimateSpinner.stop("Missing translations found");
 
-    p.log.info(`Available credits: ${estimate.available_credits} / ${estimate.credits_limit} WU`);
+    p.log.info(
+      `Available credits: ${estimate.available_credits} / ${estimate.credits_limit} WU`,
+    );
     p.log.info(`Estimated cost: ${estimate.estimated_cost} WU`);
     if (estimate.cache_count > 0) {
       const cacheCost = estimate.cache_count * estimate.cache_cost_per_item;
-      p.log.info(`  ${estimate.cache_count} from cache @ ${estimate.cache_cost_per_item} WU = ${cacheCost} WU`);
+      p.log.info(
+        `  ${estimate.cache_count} from cache @ ${estimate.cache_cost_per_item} WU = ${cacheCost} WU`,
+      );
     }
     if (estimate.ai_count > 0) {
       const aiCost = estimate.ai_count * estimate.ai_cost_per_item;
-      p.log.info(`  ${estimate.ai_count} via AI @ ${estimate.ai_cost_per_item} WU = ${aiCost} WU`);
+      p.log.info(
+        `  ${estimate.ai_count} via AI @ ${estimate.ai_cost_per_item} WU = ${aiCost} WU`,
+      );
     }
 
     if (estimate.estimated_cost > estimate.available_credits) {
-      p.log.warn("Insufficient credits for full translation. Upgrade your plan to get more WU.");
+      p.log.warn(
+        "Insufficient credits for full translation. Upgrade your plan to get more WU.",
+      );
     }
 
     // Ask to translate (skip prompt if --translate flag was passed)
@@ -368,10 +409,14 @@ export const pushCommand = new Command("push")
       pullSpinner.stop(
         `${pullResult.wordings} keys, ${pullResult.languages} languages written`,
       );
-      p.log.success("Translations synced. Verify in your code or the i1n dashboard.");
+      p.log.success(
+        "Translations synced. Verify in your code or the i1n dashboard.",
+      );
     } catch (err) {
       pullSpinner.stop("Pull failed.");
-      p.log.warn(err instanceof Error ? err.message : "Could not pull translations.");
+      p.log.warn(
+        err instanceof Error ? err.message : "Could not pull translations.",
+      );
       p.log.info("Run `i1n pull` manually to get updated translations.");
     }
 

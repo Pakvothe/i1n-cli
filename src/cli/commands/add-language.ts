@@ -33,9 +33,20 @@ export const addLanguageCommand = new Command("add-language")
       process.exit(1);
     }
 
+    if (limits.is_locked) {
+      spinner.stop("Project is locked (Read-Only).");
+      p.log.error(
+        "This project is locked due to plan limits. Please upgrade to enable adding languages.",
+      );
+      p.outro("Aborted.");
+      return;
+    }
+
     const { active, used, limit, remaining_slots } = limits.languages;
 
-    spinner.stop(`${active.length} active language(s), ${remaining_slots} slot(s) available`);
+    spinner.stop(
+      `${active.length} active language(s), ${remaining_slots} slot(s) available`,
+    );
 
     // Show current active languages
     if (active.length > 0) {
@@ -52,7 +63,9 @@ export const addLanguageCommand = new Command("add-language")
 
     // Build options from available_languages (already sorted alphabetically, filtered by plan)
     const activeSet = new Set(active);
-    const available = limits.available_languages.filter((l) => !activeSet.has(l.code));
+    const available = limits.available_languages.filter(
+      (l) => !activeSet.has(l.code),
+    );
 
     if (available.length === 0) {
       p.log.info("All available languages are already active.");
@@ -73,9 +86,10 @@ export const addLanguageCommand = new Command("add-language")
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([language, variants]) => ({
         value: language,
-        label: variants.length > 1
-          ? `${language} (${variants.length} variants)`
-          : `${variants[0].flag}  ${language} — ${variants[0].name} (${variants[0].code})`,
+        label:
+          variants.length > 1
+            ? `${language} (${variants.length} variants)`
+            : `${variants[0].flag}  ${language} — ${variants[0].name} (${variants[0].code})`,
       }));
 
     const selectedLanguages = await p.multiselect({
@@ -126,7 +140,7 @@ export const addLanguageCommand = new Command("add-language")
     if (freshNew.length > remaining_slots) {
       p.log.error(
         `Selected ${freshNew.length} new language(s) but only ${remaining_slots} slot(s) available. ` +
-        `Upgrade your plan to add more languages.`,
+          `Upgrade your plan to add more languages.`,
       );
       p.outro("Done.");
       return;
@@ -187,11 +201,15 @@ export const addLanguageCommand = new Command("add-language")
 
       estimateSpinner.stop("Estimate ready");
 
-      p.log.info(`Available credits: ${estimate.available_credits} / ${estimate.credits_limit} WU`);
+      p.log.info(
+        `Available credits: ${estimate.available_credits} / ${estimate.credits_limit} WU`,
+      );
       p.log.info(`Estimated cost: ${estimate.estimated_cost} WU`);
 
       if (estimate.estimated_cost > estimate.available_credits) {
-        p.log.warn("Insufficient credits for full translation. Upgrade your plan to get more WU.");
+        p.log.warn(
+          "Insufficient credits for full translation. Upgrade your plan to get more WU.",
+        );
         p.outro("Done! (languages added, translation skipped)");
         return;
       }
@@ -252,16 +270,18 @@ export const addLanguageCommand = new Command("add-language")
             if (progress.status === "done") break;
 
             const { total, completed, remaining } = progress;
-            const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+            const percentage =
+              total > 0 ? Math.round((completed / total) * 100) : 0;
 
             const elapsed = (Date.now() - startTime) / 1000;
             let etaText = "calculating...";
             if (elapsed > 5 && completed > 0) {
               const rate = completed / elapsed;
               const remainingSeconds = Math.ceil(remaining / rate);
-              etaText = remainingSeconds > 60
-                ? `~${Math.ceil(remainingSeconds / 60)} min`
-                : `~${remainingSeconds} sec`;
+              etaText =
+                remainingSeconds > 60
+                  ? `~${Math.ceil(remainingSeconds / 60)} min`
+                  : `~${remainingSeconds} sec`;
             }
 
             const msg = `Translating... ${percentage}% (${completed}/${total}) • ETA: ${etaText}`;
@@ -290,7 +310,9 @@ export const addLanguageCommand = new Command("add-language")
         pullSpinner.stop(
           `${pullResult.wordings} keys, ${pullResult.languages} languages written`,
         );
-        p.log.success("Translations synced. Verify in your code or the i1n dashboard.");
+        p.log.success(
+          "Translations synced. Verify in your code or the i1n dashboard.",
+        );
       } catch {
         pullSpinner.stop("Pull failed.");
         p.log.info("Run `i1n pull` manually to get updated translations.");

@@ -13,7 +13,11 @@ import { callCliSync } from "../../shared/supabase.js";
 import { writeAIConfigs } from "../../shared/ai-config.js";
 import { promptAITools, fetchToneSettings } from "./setup-ai.js";
 import { executePull } from "./pull.js";
-import type { Format, Framework, I1nProjectConfig } from "../../shared/types.js";
+import type {
+  Format,
+  Framework,
+  I1nProjectConfig,
+} from "../../shared/types.js";
 
 const API_KEY_REGEX = /^i1n_[a-f0-9]{32}$/;
 
@@ -85,7 +89,18 @@ export const initCommand = new Command("init")
     let projectId: string;
     let projectLanguages: string[] = [];
 
+    // Filter to find if there are any unlocked projects
+    const unlockedProjects = projects.filter((p) => !p.is_locked);
+
     if (projects.length === 1) {
+      if (projects[0].is_locked) {
+        p.log.warn(
+          `Project "${projects[0].name}" is locked (Read-Only) due to plan limits.`,
+        );
+        p.log.info(
+          "You will only be able to pull translations, not push new ones.",
+        );
+      }
       projectId = projects[0].id;
       projectLanguages = projects[0].used_languages ?? [];
       p.log.info(`Project: ${projects[0].name}`);
@@ -94,7 +109,10 @@ export const initCommand = new Command("init")
         message: "Select a project",
         options: projects.map((proj) => ({
           value: proj.id,
-          label: proj.name,
+          label: proj.is_locked
+            ? `${proj.name} (locked - upgrade your plan)`
+            : proj.name,
+          hint: proj.is_locked ? "Read-Only" : undefined,
         })),
       });
 
@@ -103,8 +121,16 @@ export const initCommand = new Command("init")
         return;
       }
 
+      const selectedProj = projects.find((proj) => proj.id === selected);
+      if (selectedProj?.is_locked) {
+        p.log.warn("This project is locked (Read-Only) due to plan limits.");
+        p.log.info(
+          "You will only be able to pull translations, not push new ones.",
+        );
+      }
+
       projectId = selected;
-      projectLanguages = projects.find((proj) => proj.id === selected)?.used_languages ?? [];
+      projectLanguages = selectedProj?.used_languages ?? [];
     }
 
     // 4. Detect or manually configure format/locales
@@ -132,7 +158,9 @@ export const initCommand = new Command("init")
 
       if (result.wordings.length > 0) {
         const namespaces = new Set(result.wordings.map((w) => w.namespace));
-        p.log.info(`Found ${result.wordings.length} keys across ${namespaces.size} namespace(s)`);
+        p.log.info(
+          `Found ${result.wordings.length} keys across ${namespaces.size} namespace(s)`,
+        );
       }
 
       const confirm = await p.confirm({
@@ -193,13 +221,24 @@ export const initCommand = new Command("init")
     p.log.info("Added i1n.config.json to .gitignore");
 
     // 7. Offer to pull existing translations
-    const config: I1nProjectConfig = { apiKey, projectId, localesDir, sourceLocale, format, framework };
+    const config: I1nProjectConfig = {
+      apiKey,
+      projectId,
+      localesDir,
+      sourceLocale,
+      format,
+      framework,
+    };
 
     const checkSpinner = p.spinner();
     checkSpinner.start("Checking for existing translations...");
 
     try {
-      const preview = await callCliSync("pull", { project_id: projectId }, apiKey);
+      const preview = await callCliSync(
+        "pull",
+        { project_id: projectId },
+        apiKey,
+      );
       if (preview.wordings.length > 0) {
         checkSpinner.stop(
           `${preview.wordings.length} keys in ${preview.languages.length} languages available`,
@@ -233,14 +272,18 @@ export const initCommand = new Command("init")
       const tone = await fetchToneSettings(projectId, apiKey);
       const tools = await promptAITools();
       if (tools) {
-        const written = writeAIConfigs(tools, {
-          apiKey,
-          projectId,
-          localesDir,
-          sourceLocale,
-          format,
-          framework,
-        }, tone ?? undefined);
+        const written = writeAIConfigs(
+          tools,
+          {
+            apiKey,
+            projectId,
+            localesDir,
+            sourceLocale,
+            format,
+            framework,
+          },
+          tone ?? undefined,
+        );
         for (const file of written) {
           p.log.success(`Created ${file}`);
         }
@@ -260,7 +303,12 @@ interface ManualConfig {
 }
 
 async function manualSetup(
-  defaults: { framework: Framework; format: Format; localesDir: string; sourceLocale: string } | null,
+  defaults: {
+    framework: Framework;
+    format: Format;
+    localesDir: string;
+    sourceLocale: string;
+  } | null,
   projectLanguages: string[] = [],
 ): Promise<ManualConfig | null> {
   const localesDir = await p.text({
@@ -305,15 +353,19 @@ async function manualSetup(
   }
 
   // Detect framework to recommend the best format
-  const hint = defaults ? { framework: defaults.framework, format: defaults.format } : detectFramework(process.cwd());
+  const hint = defaults
+    ? { framework: defaults.framework, format: defaults.format }
+    : detectFramework(process.cwd());
   const recommendedFormat: Format = hint?.format ?? "nested-json";
 
   const format = await p.select<Format>({
     message: "File format",
-    options: (Object.entries(FORMAT_LABELS) as [Format, string][]).map(([value, label]) => ({
-      value,
-      label: value === recommendedFormat ? `${label} (Recommended)` : label,
-    })),
+    options: (Object.entries(FORMAT_LABELS) as [Format, string][]).map(
+      ([value, label]) => ({
+        value,
+        label: value === recommendedFormat ? `${label} (Recommended)` : label,
+      }),
+    ),
     initialValue: recommendedFormat,
   });
   if (p.isCancel(format)) {
