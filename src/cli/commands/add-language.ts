@@ -50,34 +50,75 @@ export const addLanguageCommand = new Command("add-language")
       return;
     }
 
-    // Build options: all supported codes minus already active ones
+    // Build options from available_languages (already sorted alphabetically, filtered by plan)
     const activeSet = new Set(active);
-    const available = limits.supported_codes.filter((c) => !activeSet.has(c));
+    const available = limits.available_languages.filter((l) => !activeSet.has(l.code));
 
     if (available.length === 0) {
-      p.log.info("All supported languages are already active.");
+      p.log.info("All available languages are already active.");
       p.outro("Done.");
       return;
     }
 
-    // Format options with country name from code
-    const options = available.map((code) => ({
-      value: code,
-      label: code,
-    }));
+    // Group by base language (e.g. "English", "Español")
+    const groups = new Map<string, typeof available>();
+    for (const lang of available) {
+      const group = groups.get(lang.language) ?? [];
+      group.push(lang);
+      groups.set(lang.language, group);
+    }
 
-    const selected = await p.multiselect({
+    // Step 1: Pick base language(s)
+    const languageOptions = [...groups.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([language, variants]) => ({
+        value: language,
+        label: variants.length > 1
+          ? `${language} (${variants.length} variants)`
+          : `${variants[0].flag}  ${language} — ${variants[0].name} (${variants[0].code})`,
+      }));
+
+    const selectedLanguages = await p.multiselect({
       message: `Select language(s) to add (${remaining_slots} slot(s) available, press space to select)`,
-      options,
+      options: languageOptions,
       required: true,
     });
 
-    if (p.isCancel(selected)) {
+    if (p.isCancel(selectedLanguages)) {
       p.cancel("Cancelled.");
       return;
     }
 
-    const selectedCodes = selected as string[];
+    // Step 2: For languages with multiple variants, pick specific variant(s)
+    const selectedCodes: string[] = [];
+
+    for (const language of selectedLanguages as string[]) {
+      const variants = groups.get(language)!;
+
+      if (variants.length === 1) {
+        // Single variant — auto-select
+        selectedCodes.push(variants[0].code);
+        continue;
+      }
+
+      const variantOptions = variants.map((v) => ({
+        value: v.code,
+        label: `${v.flag}  ${v.name} (${v.code})`,
+      }));
+
+      const selectedVariants = await p.multiselect({
+        message: `Select ${language} variant(s) (press space to select)`,
+        options: variantOptions,
+        required: true,
+      });
+
+      if (p.isCancel(selectedVariants)) {
+        p.cancel("Cancelled.");
+        return;
+      }
+
+      selectedCodes.push(...(selectedVariants as string[]));
+    }
 
     // Check if selection exceeds remaining slots
     // Reactivations (in used but not active) don't consume slots

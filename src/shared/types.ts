@@ -123,6 +123,7 @@ export interface ProjectLimitsResponse {
     remaining_slots: number;
   };
   supported_codes: string[];
+  available_languages: { code: string; name: string; flag: string; language: string }[];
 }
 
 export interface AddLanguageResponse {
