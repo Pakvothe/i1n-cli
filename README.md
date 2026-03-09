@@ -86,6 +86,33 @@ Pulls translations from i1n and writes them to your locale files. Also generates
 i1n pull
 ```
 
+### `i1n add-language`
+
+Add new languages to your project interactively. Shows available language slots based on your plan and lets you select from all supported languages.
+
+```bash
+i1n add-language
+```
+
+After adding, the CLI offers to translate existing keys to the new language(s) — with cost estimate and credit check before proceeding.
+
+### `i1n limits`
+
+Shows your project's current plan limits and usage:
+
+```bash
+i1n limits
+```
+
+```
+◇ Plan: pro
+│  Wording keys: 142 / 5000
+│  Credits (WU): 350 / 10000
+│  Languages: 3 / 4 slots used
+│  Active: en_us, es_es, fr_fr
+│  1 language slot(s) available
+```
+
 ### `i1n setup-ai`
 
 Generates AI assistant rules so your coding tool knows how to work with i1n in your project — translation file structure, CLI commands, and best practices.

@@ -104,3 +104,28 @@ export interface ValidateResponse {
   org_name: string;
   projects: { id: string; name: string; used_languages: string[] }[];
 }
+
+export type TonePreset = "formal" | "friendly" | "technical" | "concise" | "custom";
+
+export interface ProjectSettingsResponse {
+  tone_preset: TonePreset;
+  brand_voice: string | null;
+}
+
+export interface ProjectLimitsResponse {
+  plan_id: string;
+  wordings: { used: number; limit: number };
+  credits: { used: number; limit: number };
+  languages: {
+    active: string[];
+    used: string[];
+    limit: number;
+    remaining_slots: number;
+  };
+  supported_codes: string[];
+}
+
+export interface AddLanguageResponse {
+  added: string[];
+  active_languages: string[];
+}

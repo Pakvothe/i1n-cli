@@ -7,6 +7,7 @@ import { flattenObject, unflattenObject } from "../src/parsers/utils.js";
 import { generateTypeDefinitions } from "../src/shared/codegen.js";
 import { readProjectConfig, writeProjectConfig, projectConfigExists, ensureGitignore } from "../src/shared/config.js";
 import { readPushState, writePushState, getChangedWordings } from "../src/shared/push-state.js";
+import { normalizeLocaleCode, normalizeWordingLanguages } from "../src/shared/languages.js";
 import type { Wording, I1nProjectConfig } from "../src/shared/types.js";
 
 describe("extractVariables", () => {
@@ -381,5 +382,94 @@ describe("push state", () => {
     fs.writeFileSync(path.join(dir, ".i1n-push-state.json"), "not json", "utf-8");
     const state = readPushState(dir);
     expect(state).toEqual({});
+  });
+});
+
+const SUPPORTED_CODES = ["en_us", "es_es", "fr_fr", "pt_br", "de_de", "ja_jp", "zh_cn"];
+
+describe("normalizeLocaleCode", () => {
+  it("returns exact match", () => {
+    expect(normalizeLocaleCode("en_us", SUPPORTED_CODES)).toBe("en_us");
+  });
+
+  it("converts hyphens to underscores", () => {
+    expect(normalizeLocaleCode("en-us", SUPPORTED_CODES)).toBe("en_us");
+  });
+
+  it("lowercases the code", () => {
+    expect(normalizeLocaleCode("en_US", SUPPORTED_CODES)).toBe("en_us");
+  });
+
+  it("handles mixed case with hyphens", () => {
+    expect(normalizeLocaleCode("pt-BR", SUPPORTED_CODES)).toBe("pt_br");
+  });
+
+  it("expands short code to first match", () => {
+    expect(normalizeLocaleCode("en", SUPPORTED_CODES)).toBe("en_us");
+  });
+
+  it("expands short code es to es_es", () => {
+    expect(normalizeLocaleCode("es", SUPPORTED_CODES)).toBe("es_es");
+  });
+
+  it("returns null for unsupported code", () => {
+    expect(normalizeLocaleCode("xx", SUPPORTED_CODES)).toBeNull();
+  });
+
+  it("returns null for unsupported full code", () => {
+    expect(normalizeLocaleCode("ko_kr", SUPPORTED_CODES)).toBeNull();
+  });
+
+  it("returns null for empty string", () => {
+    expect(normalizeLocaleCode("", SUPPORTED_CODES)).toBeNull();
+  });
+});
+
+describe("normalizeWordingLanguages", () => {
+  it("passes through already-normalized codes", () => {
+    const input = { en_us: "Hello", es_es: "Hola" };
+    const { normalized, mappings, unsupported } = normalizeWordingLanguages(input, SUPPORTED_CODES);
+    expect(normalized).toEqual({ en_us: "Hello", es_es: "Hola" });
+    expect(mappings.size).toBe(0);
+    expect(unsupported).toEqual([]);
+  });
+
+  it("normalizes hyphenated codes and tracks mappings", () => {
+    const input = { "en-US": "Hello", "pt-BR": "Olá" };
+    const { normalized, mappings, unsupported } = normalizeWordingLanguages(input, SUPPORTED_CODES);
+    expect(normalized).toEqual({ en_us: "Hello", pt_br: "Olá" });
+    expect(mappings.get("en-US")).toBe("en_us");
+    expect(mappings.get("pt-BR")).toBe("pt_br");
+    expect(unsupported).toEqual([]);
+  });
+
+  it("expands short codes and tracks mappings", () => {
+    const input = { en: "Hello", fr: "Bonjour" };
+    const { normalized, mappings, unsupported } = normalizeWordingLanguages(input, SUPPORTED_CODES);
+    expect(normalized).toEqual({ en_us: "Hello", fr_fr: "Bonjour" });
+    expect(mappings.get("en")).toBe("en_us");
+    expect(mappings.get("fr")).toBe("fr_fr");
+  });
+
+  it("collects unsupported codes", () => {
+    const input = { en_us: "Hello", xx: "Unknown", yy_zz: "Also unknown" };
+    const { normalized, unsupported } = normalizeWordingLanguages(input, SUPPORTED_CODES);
+    expect(normalized).toEqual({ en_us: "Hello" });
+    expect(unsupported).toEqual(["xx", "yy_zz"]);
+  });
+
+  it("handles mixed valid and invalid codes", () => {
+    const input = { en: "Hello", "pt-BR": "Olá", xx: "Bad" };
+    const { normalized, mappings, unsupported } = normalizeWordingLanguages(input, SUPPORTED_CODES);
+    expect(normalized).toEqual({ en_us: "Hello", pt_br: "Olá" });
+    expect(mappings.size).toBe(2);
+    expect(unsupported).toEqual(["xx"]);
+  });
+
+  it("handles empty input", () => {
+    const { normalized, mappings, unsupported } = normalizeWordingLanguages({}, SUPPORTED_CODES);
+    expect(normalized).toEqual({});
+    expect(mappings.size).toBe(0);
+    expect(unsupported).toEqual([]);
   });
 });

@@ -11,8 +11,9 @@ import {
 } from "../../shared/config.js";
 import { callCliSync } from "../../shared/supabase.js";
 import { writeAIConfigs } from "../../shared/ai-config.js";
-import { promptAITools } from "./setup-ai.js";
-import type { Format, Framework } from "../../shared/types.js";
+import { promptAITools, fetchToneSettings } from "./setup-ai.js";
+import { executePull } from "./pull.js";
+import type { Format, Framework, I1nProjectConfig } from "../../shared/types.js";
 
 const API_KEY_REGEX = /^i1n_[a-f0-9]{32}$/;
 
@@ -41,36 +42,37 @@ export const initCommand = new Command("init")
       }
     }
 
-    // 1. Ask for API key
-    const apiKey = await p.text({
-      message: "Paste your API key (from your i1n dashboard)",
-      placeholder: "i1n_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      validate: (value) => {
-        if (!API_KEY_REGEX.test(value)) {
-          return "Invalid format. Expected: i1n_ followed by 32 hex characters.";
-        }
-      },
-    });
-
-    if (p.isCancel(apiKey)) {
-      p.cancel("Cancelled.");
-      return;
-    }
-
-    // 2. Validate key and get org/projects
-    const spinner = p.spinner();
-    spinner.start("Validating API key...");
-
+    // 1. Ask for API key + validate (retry loop with clean prompt on failure)
+    let apiKey: string;
     let validateResult;
-    try {
-      validateResult = await callCliSync("validate", {}, apiKey);
-    } catch (err) {
-      spinner.stop("Authentication failed.");
-      p.log.error(err instanceof Error ? err.message : "Could not validate API key.");
-      return;
-    }
+    while (true) {
+      const input = await p.text({
+        message: "Paste your API key (from your i1n dashboard)",
+        placeholder: "i1n_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      });
 
-    spinner.stop(`Connected to "${validateResult.org_name}"`);
+      if (p.isCancel(input)) {
+        p.cancel("Cancelled.");
+        return;
+      }
+
+      if (!API_KEY_REGEX.test(input)) {
+        p.log.warn("Invalid API key. Try again with a valid key.");
+        continue;
+      }
+
+      const spinner = p.spinner();
+      spinner.start("Validating API key...");
+
+      try {
+        validateResult = await callCliSync("validate", {}, input);
+        spinner.stop(`Connected to "${validateResult.org_name}"`);
+        apiKey = input;
+        break;
+      } catch {
+        spinner.stop("Invalid API key. Try again with a valid key.");
+      }
+    }
 
     // 3. Select project
     const projects = validateResult.projects;
@@ -190,12 +192,45 @@ export const initCommand = new Command("init")
     p.log.success("Config saved to i1n.config.json");
     p.log.info("Added i1n.config.json to .gitignore");
 
-    // 7. AI assistant rules (optional)
+    // 7. Offer to pull existing translations
+    const config: I1nProjectConfig = { apiKey, projectId, localesDir, sourceLocale, format, framework };
+
+    const checkSpinner = p.spinner();
+    checkSpinner.start("Checking for existing translations...");
+
+    try {
+      const preview = await callCliSync("pull", { project_id: projectId }, apiKey);
+      if (preview.wordings.length > 0) {
+        checkSpinner.stop(
+          `${preview.wordings.length} keys in ${preview.languages.length} languages available`,
+        );
+
+        const doPull = await p.confirm({
+          message: "Pull translations now?",
+        });
+
+        if (!p.isCancel(doPull) && doPull) {
+          const pullSpinner = p.spinner();
+          pullSpinner.start("Pulling translations...");
+          const pullResult = await executePull(config);
+          pullSpinner.stop(
+            `${pullResult.wordings} keys, ${pullResult.languages} languages written`,
+          );
+        }
+      } else {
+        checkSpinner.stop("No translations found yet");
+      }
+    } catch {
+      checkSpinner.stop("Could not check for translations");
+    }
+
+    // 8. AI assistant rules (optional)
     const setupAI = await p.confirm({
       message: "Set up AI assistant rules for i1n?",
     });
 
     if (!p.isCancel(setupAI) && setupAI) {
+      const tone = await fetchToneSettings(projectId, apiKey);
       const tools = await promptAITools();
       if (tools) {
         const written = writeAIConfigs(tools, {
@@ -205,7 +240,7 @@ export const initCommand = new Command("init")
           sourceLocale,
           format,
           framework,
-        });
+        }, tone ?? undefined);
         for (const file of written) {
           p.log.success(`Created ${file}`);
         }

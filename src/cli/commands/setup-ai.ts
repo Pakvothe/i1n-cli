@@ -3,9 +3,11 @@ import * as p from "@clack/prompts";
 import { readProjectConfig } from "../../shared/config.js";
 import {
   type AITool,
+  type ToneSettings,
   AI_TOOL_OPTIONS,
   writeAIConfigs,
 } from "../../shared/ai-config.js";
+import { callCliSync } from "../../shared/supabase.js";
 
 export const setupAiCommand = new Command("setup-ai")
   .description("Generate AI assistant rules for your project")
@@ -18,10 +20,13 @@ export const setupAiCommand = new Command("setup-ai")
 
     p.intro("i1n setup-ai");
 
+    // Fetch tone settings from project
+    const tone = await fetchToneSettings(config.projectId, config.apiKey);
+
     const tools = await promptAITools();
     if (!tools) return;
 
-    const written = writeAIConfigs(tools, config);
+    const written = writeAIConfigs(tools, config, tone ?? undefined);
 
     for (const file of written) {
       p.log.success(`Created ${file}`);
@@ -32,7 +37,7 @@ export const setupAiCommand = new Command("setup-ai")
 
 export async function promptAITools(): Promise<AITool[] | null> {
   const selected = await p.multiselect({
-    message: "Which AI coding assistant(s) do you use?",
+    message: "Which AI coding assistant(s) do you use? (press space to select)",
     options: [
       ...AI_TOOL_OPTIONS.map((t) => ({
         value: t.value,
@@ -52,4 +57,23 @@ export async function promptAITools(): Promise<AITool[] | null> {
   }
 
   return selected as AITool[];
+}
+
+export async function fetchToneSettings(
+  projectId: string,
+  apiKey: string,
+): Promise<ToneSettings | null> {
+  try {
+    const settings = await callCliSync(
+      "project-settings",
+      { project_id: projectId },
+      apiKey,
+    );
+    return {
+      tone_preset: settings.tone_preset,
+      brand_voice: settings.brand_voice,
+    };
+  } catch {
+    return null;
+  }
 }

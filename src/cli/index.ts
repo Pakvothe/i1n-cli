@@ -3,6 +3,8 @@ import { initCommand } from "./commands/init.js";
 import { pushCommand } from "./commands/push.js";
 import { pullCommand } from "./commands/pull.js";
 import { setupAiCommand } from "./commands/setup-ai.js";
+import { addLanguageCommand } from "./commands/add-language.js";
+import { projectLimitsCommand } from "./commands/project-limits.js";
 
 const program = new Command();
 
@@ -15,5 +17,7 @@ program.addCommand(initCommand);
 program.addCommand(pushCommand);
 program.addCommand(pullCommand);
 program.addCommand(setupAiCommand);
+program.addCommand(addLanguageCommand);
+program.addCommand(projectLimitsCommand);
 
 program.parse();
