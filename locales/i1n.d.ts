@@ -9,4 +9,11 @@ declare module "i1n" {
     key: K,
     ...args: I1nKeys[K] extends Record<string, never> ? [] : [variables: I1nKeys[K]]
   ): string;
+
+  function init(options: { locale: string; resources: Record<string, any> }): void;
+  function setLocale(locale: string): void;
+  function getLocale(): string;
+
+  type EngineFn = (key: string, params?: Record<string, any>) => string;
+  function registerI1n(engine: EngineFn | null): void;
 }
