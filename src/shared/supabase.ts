@@ -41,12 +41,21 @@ type ActionResponseMap = {
   "add-language": AddLanguageResponse;
 };
 
+// Singleton client — reuse across all calls to avoid connection overhead
+let _client: ReturnType<typeof createClient> | null = null;
+function getClient() {
+  if (!_client) {
+    _client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+  return _client;
+}
+
 export async function callCliSync<T extends Action>(
   action: T,
   params: Record<string, unknown>,
   apiKey: string,
 ): Promise<ActionResponseMap[T]> {
-  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const client = getClient();
 
   const { data, error } = await client.functions.invoke("cli-sync", {
     body: { action, params },

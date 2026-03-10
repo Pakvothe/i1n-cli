@@ -9,20 +9,35 @@
  *
  * Returns null if the code doesn't match any supported locale.
  */
+// Pre-built Set cache for O(1) lookups — avoids rebuilding on every call
+let _supportedSet: Set<string> | null = null;
+let _supportedCodesRef: string[] | null = null;
+
+function getSupportedSet(supportedCodes: string[]): Set<string> {
+  // Only rebuild if the reference changed (same array = same set)
+  if (_supportedCodesRef !== supportedCodes) {
+    _supportedSet = new Set(supportedCodes);
+    _supportedCodesRef = supportedCodes;
+  }
+  return _supportedSet!;
+}
+
 export function normalizeLocaleCode(
   code: string,
   supportedCodes: string[],
 ): string | null {
   const normalized = code.replace(/-/g, "_").toLowerCase();
+  const supportedSet = getSupportedSet(supportedCodes);
 
-  // Exact match
-  if (supportedCodes.includes(normalized)) {
+  // Exact match — O(1)
+  if (supportedSet.has(normalized)) {
     return normalized;
   }
 
   // Short code: find first match starting with "{code}_"
   if (!normalized.includes("_")) {
-    const match = supportedCodes.find((c) => c.startsWith(`${normalized}_`));
+    const prefix = `${normalized}_`;
+    const match = supportedCodes.find((c) => c.startsWith(prefix));
     return match ?? null;
   }
 

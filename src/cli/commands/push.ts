@@ -24,9 +24,11 @@ async function waitForTranslation(
 ): Promise<void> {
   const startTime = Date.now();
   let lastMessage = "";
+  let pollInterval = 500; // Start fast — workers are already running
+  let lastCompleted = 0;
 
   while (true) {
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, pollInterval));
 
     let progress: TranslationProgressResponse;
     try {
@@ -36,6 +38,8 @@ async function waitForTranslation(
         apiKey,
       );
     } catch {
+      // On error, slow down polling
+      pollInterval = Math.min(pollInterval * 1.5, 8000);
       continue;
     }
 
@@ -45,8 +49,21 @@ async function waitForTranslation(
 
     const { total, completed, remaining } = progress;
     const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
+    const madeProgress = completed > lastCompleted;
+    lastCompleted = completed;
 
-    // ETA calculation (same formula as dashboard SmartProgressBar)
+    // Adaptive polling: very fast when active, back off when idle
+    if (madeProgress) {
+      // Active progress — poll fast (1-2s)
+      pollInterval = Math.max(1000, Math.min(2000, remaining * 50));
+    } else if (completed > 0) {
+      // Had progress before but stalled — moderate (2-3s)
+      pollInterval = Math.min(3000, pollInterval * 1.2);
+    } else {
+      // No progress yet (workers starting up) — back off up to 4s
+      pollInterval = Math.min(pollInterval * 1.3, 4000);
+    }
+
     const elapsed = (Date.now() - startTime) / 1000;
     let etaText = "calculating...";
     if (elapsed > 5 && completed > 0) {
@@ -59,7 +76,6 @@ async function waitForTranslation(
     }
 
     const msg = `Translating... ${percentage}% (${completed}/${total}) • ETA: ${etaText}`;
-    // Only update spinner when message actually changed to avoid flicker
     if (msg !== lastMessage) {
       spinner.message(msg);
       lastMessage = msg;
@@ -238,7 +254,7 @@ export const pushCommand = new Command("push")
       const pushSpinner = p.spinner();
       pushSpinner.start("Pushing to i1n...");
 
-      const BATCH_SIZE = 50;
+      const BATCH_SIZE = 500;
       let totalCreated = 0;
       let totalUpdated = 0;
 

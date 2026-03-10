@@ -253,12 +253,13 @@ export const addLanguageCommand = new Command("add-language")
         const aiSpinner = p.spinner();
         aiSpinner.start(`Translating ${result.queued} items with AI...`);
 
-        // Poll for progress
+        // Poll for progress with adaptive interval
         const startTime = Date.now();
         let lastMessage = "";
+        let pollInterval = 1000;
 
         while (true) {
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+          await new Promise((resolve) => setTimeout(resolve, pollInterval));
 
           try {
             const progress = await callCliSync(
@@ -272,6 +273,13 @@ export const addLanguageCommand = new Command("add-language")
             const { total, completed, remaining } = progress;
             const percentage =
               total > 0 ? Math.round((completed / total) * 100) : 0;
+
+            // Adaptive polling
+            if (completed > 0) {
+              pollInterval = Math.max(2000, Math.min(3000, remaining * 100));
+            } else {
+              pollInterval = Math.min(pollInterval * 1.3, 5000);
+            }
 
             const elapsed = (Date.now() - startTime) / 1000;
             let etaText = "calculating...";
@@ -290,6 +298,7 @@ export const addLanguageCommand = new Command("add-language")
               lastMessage = msg;
             }
           } catch {
+            pollInterval = Math.min(pollInterval * 1.5, 10000);
             continue;
           }
         }
