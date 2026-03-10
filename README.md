@@ -142,7 +142,7 @@ init({
 });
 
 t("common.greeting", { name: "World" }); // "Hello World"
-t("items", { count: 5 });                // "5 items"
+t("items", { count: 5 }); // "5 items"
 
 // Switch language at runtime
 setLocale("es_es");
@@ -160,7 +160,12 @@ import i18next from "i18next";
 import { registerI1n, t } from "i1n";
 
 // Set up i18next as usual
-await i18next.init({ lng: "en", resources: { /* ... */ } });
+await i18next.init({
+  lng: "en",
+  resources: {
+    /* ... */
+  },
+});
 
 // Connect to i1n — one line
 registerI1n((key, params) => i18next.t(key, params));
@@ -170,6 +175,7 @@ t("common.greeting", { name: "World" }); // Powered by i18next, typed by i1n
 ```
 
 Works with any library:
+
 - **vue-i18n**: `registerI1n((key, params) => i18n.global.t(key, params))`
 - **react-intl**: `registerI1n((key, params) => intl.formatMessage({ id: key }, params))`
 - **Custom**: `registerI1n((key) => myLookup(key))`
@@ -203,43 +209,47 @@ init({ locale: "en_us", resources: { en_us: { greeting: "Hello {name}" } } });
 t("greeting", { name: "World" }); // "Hello World"
 ```
 
-### React / Preact Integration
+### ⚛️ React / Preact Integration
 
-The SDK uses global state, so `setLocale()` won't trigger React re-renders by itself. Wrap it with a context provider:
+For a "plug and play" experience, use this minimalist provider pattern.
 
 ```tsx
 import { createContext, useContext, useState } from "react";
-import { init, t as i1nT, setLocale as i1nSetLocale, getLocale } from "i1n";
+import { init, t, getLocale, setLocale as sdkSetLocale } from "i1n";
 
-const I1nContext = createContext({ locale: "" });
+// 1. Initialize with wordings
+init({
+  locale: "en_us",
+  resources: { en: { ... }, es: { ... } }
+});
 
-export function I1nProvider({ children, resources }: {
-  children: React.ReactNode;
-  resources: Record<string, any>;
-}) {
-  const [locale, setLocale] = useState(getLocale());
+const I1nContext = createContext({ locale: "en_us" });
 
-  // Sync React state with i1n
-  const changeLocale = (newLocale: string) => {
-    i1nSetLocale(newLocale);
-    setLocale(newLocale);
+// 2. Simple Provider & Hook
+export function I1nProvider({ children }) {
+  const [locale, setLocaleState] = useState(getLocale());
+
+  const setLocale = (newLocale: string) => {
+    sdkSetLocale(newLocale);
+    setLocaleState(newLocale);
   };
 
   return (
-    <I1nContext.Provider value={{ locale }}>
+    <I1nContext.Provider value={{ locale, setLocale }}>
       {children}
     </I1nContext.Provider>
   );
 }
 
-// Hook that re-renders on locale change
-export function useI1n() {
-  const { locale } = useContext(I1nContext);
-  return { t: i1nT, locale };
-}
+export const useI1n = () => ({ t, ...useContext(I1nContext) });
 ```
 
-The same pattern works with Preact, Solid, or any framework with a context/signal system. A dedicated `i1n/react` package may be released in the future.
+Usage:
+
+```tsx
+const { t, setLocale } = useI1n();
+return <button onClick={() => setLocale("es_es")}>{t("auth.title")}</button>;
+```
 
 ### Non-JS Platforms
 
@@ -255,15 +265,21 @@ Flutter, Android, and iOS projects don't use the SDK. They use the translation f
 - **Secret Management**: API keys are only stored locally and never committed to version control.
 - **Encrypted Transmission**: All sync operations happen over secure HTTPS channels.
 
-### 🏷️ Type Safety
+### 🔒 Zero-Config Type Safety (TypeScript)
 
-The CLI generates a lightweight declaration file that makes your translation keys type-safe:
+The CLI generates a lightweight declaration file (`i1n.d.ts`) that automatically augments the `i1n` package with your project's specific keys.
+
+1. **Pull**: Run `i1n pull`. The CLI automatically generates `locales/i1n.d.ts` and updates your `tsconfig.json` or `jsconfig.json`.
+2. **Usage**: Import `t` from `i1n` and get full autocomplete + compile-time checking.
 
 ```typescript
 import { t } from "i1n";
 
 // Full autocomplete & compile-time checking
-t("common.greeting", { name: "Fran" });
+t("auth.login.title");
+
+// ERROR: Argument of type '"auth.login.titlse"' is not assignable...
+t("auth.login.titlse");
 ```
 
 ---

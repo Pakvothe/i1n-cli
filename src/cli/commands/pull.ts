@@ -7,6 +7,7 @@ import { callCliSync } from "../../shared/supabase.js";
 import { getParser } from "../../parsers/index.js";
 import { generateTypeDefinitions } from "../../shared/codegen.js";
 import { writePushState } from "../../shared/push-state.js";
+import { ensureConfigInclude } from "../../shared/tsconfig.js";
 import type { I1nProjectConfig } from "../../shared/types.js";
 
 /**
@@ -30,7 +31,9 @@ export async function executePull(
 
   // Write locale files
   const parser = getParser(config.format);
-  const langObjects = languages.map((code: string) => ({ code, name: code }));
+  const langObjects = languages.map((l: any) =>
+    typeof l === "string" ? { code: l, name: l } : l,
+  );
   parser.write(config.localesDir, wordings, langObjects);
 
   // Generate type definitions
@@ -41,6 +44,9 @@ export async function executePull(
 
   // Update push state so next push only sends actual changes
   writePushState(wordings, config.localesDir);
+
+  // Ensure IDE finds the types (DX automation)
+  ensureConfigInclude(config.localesDir);
 
   return { wordings: wordings.length, languages: languages.length };
 }

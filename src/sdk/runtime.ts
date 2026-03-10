@@ -3,6 +3,14 @@ import { UNSAFE_KEYS } from "../parsers/utils.js";
 // ─── Types ───────────────────────────────────────────────────────────
 export type EngineFn = (key: string, params?: Record<string, any>) => string;
 
+/**
+ * Global interface for translation keys.
+ * Can be augmented by generated code to provide type safety.
+ */
+export interface I1nKeys {}
+
+export type I1nKey = keyof I1nKeys | (string & {});
+
 // ─── Internal State ──────────────────────────────────────────────────
 let currentLocale = "";
 let resources: Record<string, any> = {};
@@ -108,23 +116,26 @@ export function registerI1n(engine: EngineFn | null): void {
 
 /**
  * Translate a key with optional variable interpolation.
- *
- * Resolution order:
- * 1. If a bridge engine is registered, delegate to it
- * 2. Get resource bundle for current locale
- * 3. If variables contain `count` (number), resolve plural variant
- * 4. Otherwise resolve key directly (nested → flat fallback)
- * 5. Interpolate variables
- * 6. Return key as fallback if nothing found
  */
-export function t(key: string, variables?: Record<string, any>): string {
+export function t<K extends I1nKey>(
+  key: K,
+  ...args: K extends keyof I1nKeys
+    ? I1nKeys[K] extends Record<string, never>
+      ? [options?: { defaultValue?: string }]
+      : [variables: I1nKeys[K] & { defaultValue?: string }]
+    : [variables?: Record<string, any> & { defaultValue?: string }]
+): string {
+  const variables = args[0] as
+    | (Record<string, any> & { defaultValue?: string })
+    | undefined;
+
   // Bridge mode — delegate to external engine
   if (engineFn) {
     return engineFn(key, variables);
   }
 
   const bundle = resources[currentLocale];
-  if (!bundle) return key;
+  if (!bundle) return variables?.defaultValue ?? key;
 
   let value: string | undefined;
 
@@ -147,7 +158,7 @@ export function t(key: string, variables?: Record<string, any>): string {
         `[i1n] Missing translation: "${key}" for locale "${currentLocale}"`,
       );
     }
-    return key;
+    return variables?.defaultValue ?? key;
   }
 
   return variables ? replaceVariables(value, variables) : value;

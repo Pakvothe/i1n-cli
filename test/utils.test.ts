@@ -5,9 +5,21 @@ import os from "node:os";
 import { extractVariables, replaceVariables } from "../src/shared/variables.js";
 import { flattenObject, unflattenObject } from "../src/parsers/utils.js";
 import { generateTypeDefinitions } from "../src/shared/codegen.js";
-import { readProjectConfig, writeProjectConfig, projectConfigExists, ensureGitignore } from "../src/shared/config.js";
-import { readPushState, writePushState, getChangedWordings } from "../src/shared/push-state.js";
-import { normalizeLocaleCode, normalizeWordingLanguages } from "../src/shared/languages.js";
+import {
+  readProjectConfig,
+  writeProjectConfig,
+  projectConfigExists,
+  ensureGitignore,
+} from "../src/shared/config.js";
+import {
+  readPushState,
+  writePushState,
+  getChangedWordings,
+} from "../src/shared/push-state.js";
+import {
+  normalizeLocaleCode,
+  normalizeWordingLanguages,
+} from "../src/shared/languages.js";
 import type { Wording, I1nProjectConfig } from "../src/shared/types.js";
 
 describe("extractVariables", () => {
@@ -24,7 +36,9 @@ describe("extractVariables", () => {
   });
 
   it("extracts multiple variables", () => {
-    const vars = extractVariables("{greeting}, {name}! You have {count} items.");
+    const vars = extractVariables(
+      "{greeting}, {name}! You have {count} items.",
+    );
     expect(vars).toEqual(["greeting", "name", "count"]);
   });
 
@@ -48,15 +62,21 @@ describe("extractVariables", () => {
 
 describe("replaceVariables", () => {
   it("replaces {var}", () => {
-    expect(replaceVariables("Hello {name}", { name: "World" })).toBe("Hello World");
+    expect(replaceVariables("Hello {name}", { name: "World" })).toBe(
+      "Hello World",
+    );
   });
 
   it("replaces {{var}}", () => {
-    expect(replaceVariables("Hello {{name}}", { name: "World" })).toBe("Hello World");
+    expect(replaceVariables("Hello {{name}}", { name: "World" })).toBe(
+      "Hello World",
+    );
   });
 
   it("replaces %{var}", () => {
-    expect(replaceVariables("Hello %{name}", { name: "World" })).toBe("Hello World");
+    expect(replaceVariables("Hello %{name}", { name: "World" })).toBe(
+      "Hello World",
+    );
   });
 
   it("leaves unknown variables unchanged", () => {
@@ -91,7 +111,9 @@ describe("flattenObject", () => {
   });
 
   it("skips arrays", () => {
-    const result = flattenObject({ list: [1, 2, 3] as unknown as Record<string, unknown> });
+    const result = flattenObject({
+      list: [1, 2, 3] as unknown as Record<string, unknown>,
+    });
     expect(result).toEqual({});
   });
 
@@ -135,7 +157,7 @@ describe("unflattenObject", () => {
 
   it("handles key collision (string vs nested)", () => {
     const result = unflattenObject({
-      "a": "string value",
+      a: "string value",
       "a.b": "nested value",
     });
     expect(result.a).toBe("string value");
@@ -161,16 +183,22 @@ describe("generateTypeDefinitions", () => {
     ];
 
     const output = generateTypeDefinitions(wordings, "en");
-    expect(output).toContain("\"common.title\": Record<string, never>");
+    expect(output).toContain('    "common.title": Record<string, never>;');
   });
 
   it("generates typed variables for keys with variables", () => {
     const wordings: Wording[] = [
-      { key: "greeting", namespace: "ui", value_json: { en: "Hello {name}, you have {count} items" } },
+      {
+        key: "greeting",
+        namespace: "ui",
+        value_json: { en: "Hello {name}, you have {count} items" },
+      },
     ];
 
     const output = generateTypeDefinitions(wordings, "en");
-    expect(output).toContain("\"ui.greeting\": { name: string; count: string }");
+    expect(output).toContain(
+      '    "ui.greeting": { name: string; count: string };',
+    );
   });
 
   it("generates valid module declaration", () => {
@@ -179,10 +207,9 @@ describe("generateTypeDefinitions", () => {
     ];
 
     const output = generateTypeDefinitions(wordings, "en");
+    expect(output).toContain('import "i1n";');
     expect(output).toContain('declare module "i1n"');
     expect(output).toContain("interface I1nKeys");
-    expect(output).toContain("type I1nKey = keyof I1nKeys");
-    expect(output).toContain("function t<K extends I1nKey>");
   });
 
   it("sorts keys alphabetically by full key", () => {
@@ -203,14 +230,16 @@ describe("generateTypeDefinitions", () => {
     ];
 
     const output = generateTypeDefinitions(wordings, "en");
-    expect(output).toContain("Record<string, never>");
+    expect(output).toContain("Record<string, never>;");
   });
 });
 
 describe("project config", () => {
   let dir: string;
 
-  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "i1n-config-")); });
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "i1n-config-"));
+  });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   const validConfig: I1nProjectConfig = {
@@ -233,25 +262,41 @@ describe("project config", () => {
   });
 
   it("returns null for invalid config", () => {
-    fs.writeFileSync(path.join(dir, "i1n.config.json"), '{"invalid": true}', "utf-8");
+    fs.writeFileSync(
+      path.join(dir, "i1n.config.json"),
+      '{"invalid": true}',
+      "utf-8",
+    );
     expect(readProjectConfig(dir)).toBeNull();
   });
 
   it("rejects path traversal in localesDir", () => {
     const malicious = { ...validConfig, localesDir: "../../../etc" };
-    fs.writeFileSync(path.join(dir, "i1n.config.json"), JSON.stringify(malicious), "utf-8");
+    fs.writeFileSync(
+      path.join(dir, "i1n.config.json"),
+      JSON.stringify(malicious),
+      "utf-8",
+    );
     expect(readProjectConfig(dir)).toBeNull();
   });
 
   it("rejects absolute path in localesDir", () => {
     const malicious = { ...validConfig, localesDir: "/etc/locales" };
-    fs.writeFileSync(path.join(dir, "i1n.config.json"), JSON.stringify(malicious), "utf-8");
+    fs.writeFileSync(
+      path.join(dir, "i1n.config.json"),
+      JSON.stringify(malicious),
+      "utf-8",
+    );
     expect(readProjectConfig(dir)).toBeNull();
   });
 
   it("rejects invalid locale code", () => {
     const bad = { ...validConfig, sourceLocale: "not-a-locale-123" };
-    fs.writeFileSync(path.join(dir, "i1n.config.json"), JSON.stringify(bad), "utf-8");
+    fs.writeFileSync(
+      path.join(dir, "i1n.config.json"),
+      JSON.stringify(bad),
+      "utf-8",
+    );
     expect(readProjectConfig(dir)).toBeNull();
   });
 
@@ -273,7 +318,9 @@ describe("project config", () => {
 describe("ensureGitignore", () => {
   let dir: string;
 
-  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "i1n-git-")); });
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "i1n-git-"));
+  });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   it("creates .gitignore with both entries if none exists", () => {
@@ -315,11 +362,17 @@ describe("push state", () => {
 
   const wordings: Wording[] = [
     { key: "title", namespace: "common", value_json: { en_us: "Hello" } },
-    { key: "greeting", namespace: "common", value_json: { en_us: "Hi {name}" } },
+    {
+      key: "greeting",
+      namespace: "common",
+      value_json: { en_us: "Hi {name}" },
+    },
     { key: "save", namespace: "buttons", value_json: { en_us: "Save" } },
   ];
 
-  beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), "i1n-push-")); });
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "i1n-push-"));
+  });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
   it("returns empty state when no file exists", () => {
@@ -353,8 +406,16 @@ describe("push state", () => {
     writePushState(wordings, dir);
 
     const modified = [
-      { key: "title", namespace: "common", value_json: { en_us: "Hello World" } },
-      { key: "greeting", namespace: "common", value_json: { en_us: "Hi {name}" } },
+      {
+        key: "title",
+        namespace: "common",
+        value_json: { en_us: "Hello World" },
+      },
+      {
+        key: "greeting",
+        namespace: "common",
+        value_json: { en_us: "Hi {name}" },
+      },
       { key: "save", namespace: "buttons", value_json: { en_us: "Save" } },
     ];
 
@@ -379,13 +440,25 @@ describe("push state", () => {
   });
 
   it("handles corrupt state file gracefully", () => {
-    fs.writeFileSync(path.join(dir, ".i1n-push-state.json"), "not json", "utf-8");
+    fs.writeFileSync(
+      path.join(dir, ".i1n-push-state.json"),
+      "not json",
+      "utf-8",
+    );
     const state = readPushState(dir);
     expect(state).toEqual({});
   });
 });
 
-const SUPPORTED_CODES = ["en_us", "es_es", "fr_fr", "pt_br", "de_de", "ja_jp", "zh_cn"];
+const SUPPORTED_CODES = [
+  "en_us",
+  "es_es",
+  "fr_fr",
+  "pt_br",
+  "de_de",
+  "ja_jp",
+  "zh_cn",
+];
 
 describe("normalizeLocaleCode", () => {
   it("returns exact match", () => {
@@ -428,7 +501,10 @@ describe("normalizeLocaleCode", () => {
 describe("normalizeWordingLanguages", () => {
   it("passes through already-normalized codes", () => {
     const input = { en_us: "Hello", es_es: "Hola" };
-    const { normalized, mappings, unsupported } = normalizeWordingLanguages(input, SUPPORTED_CODES);
+    const { normalized, mappings, unsupported } = normalizeWordingLanguages(
+      input,
+      SUPPORTED_CODES,
+    );
     expect(normalized).toEqual({ en_us: "Hello", es_es: "Hola" });
     expect(mappings.size).toBe(0);
     expect(unsupported).toEqual([]);
@@ -436,7 +512,10 @@ describe("normalizeWordingLanguages", () => {
 
   it("normalizes hyphenated codes and tracks mappings", () => {
     const input = { "en-US": "Hello", "pt-BR": "Olá" };
-    const { normalized, mappings, unsupported } = normalizeWordingLanguages(input, SUPPORTED_CODES);
+    const { normalized, mappings, unsupported } = normalizeWordingLanguages(
+      input,
+      SUPPORTED_CODES,
+    );
     expect(normalized).toEqual({ en_us: "Hello", pt_br: "Olá" });
     expect(mappings.get("en-US")).toBe("en_us");
     expect(mappings.get("pt-BR")).toBe("pt_br");
@@ -445,7 +524,10 @@ describe("normalizeWordingLanguages", () => {
 
   it("expands short codes and tracks mappings", () => {
     const input = { en: "Hello", fr: "Bonjour" };
-    const { normalized, mappings, unsupported } = normalizeWordingLanguages(input, SUPPORTED_CODES);
+    const { normalized, mappings, unsupported } = normalizeWordingLanguages(
+      input,
+      SUPPORTED_CODES,
+    );
     expect(normalized).toEqual({ en_us: "Hello", fr_fr: "Bonjour" });
     expect(mappings.get("en")).toBe("en_us");
     expect(mappings.get("fr")).toBe("fr_fr");
@@ -453,21 +535,30 @@ describe("normalizeWordingLanguages", () => {
 
   it("collects unsupported codes", () => {
     const input = { en_us: "Hello", xx: "Unknown", yy_zz: "Also unknown" };
-    const { normalized, unsupported } = normalizeWordingLanguages(input, SUPPORTED_CODES);
+    const { normalized, unsupported } = normalizeWordingLanguages(
+      input,
+      SUPPORTED_CODES,
+    );
     expect(normalized).toEqual({ en_us: "Hello" });
     expect(unsupported).toEqual(["xx", "yy_zz"]);
   });
 
   it("handles mixed valid and invalid codes", () => {
     const input = { en: "Hello", "pt-BR": "Olá", xx: "Bad" };
-    const { normalized, mappings, unsupported } = normalizeWordingLanguages(input, SUPPORTED_CODES);
+    const { normalized, mappings, unsupported } = normalizeWordingLanguages(
+      input,
+      SUPPORTED_CODES,
+    );
     expect(normalized).toEqual({ en_us: "Hello", pt_br: "Olá" });
     expect(mappings.size).toBe(2);
     expect(unsupported).toEqual(["xx"]);
   });
 
   it("handles empty input", () => {
-    const { normalized, mappings, unsupported } = normalizeWordingLanguages({}, SUPPORTED_CODES);
+    const { normalized, mappings, unsupported } = normalizeWordingLanguages(
+      {},
+      SUPPORTED_CODES,
+    );
     expect(normalized).toEqual({});
     expect(mappings.size).toBe(0);
     expect(unsupported).toEqual([]);

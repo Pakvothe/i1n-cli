@@ -5,7 +5,12 @@ const PLURAL_SUFFIXES = ["_zero", "_one", "_other"] as const;
 
 /** Escape special characters for use inside a TypeScript string literal. */
 const ESCAPE_MAP: Record<string, string> = {
-  "\\": "\\\\", '"': '\\"', "\n": "\\n", "\r": "\\r", "\t": "\\t", "\0": "\\0",
+  "\\": "\\\\",
+  '"': '\\"',
+  "\n": "\\n",
+  "\r": "\\r",
+  "\t": "\\t",
+  "\0": "\\0",
 };
 function escapeKey(key: string): string {
   return key.replace(/[\\"'\n\r\t\0]/g, (ch) => ESCAPE_MAP[ch] ?? ch);
@@ -58,7 +63,9 @@ export function generateTypeDefinitions(
   }
 
   const lines: string[] = [
-    "declare module \"i1n\" {",
+    'import "i1n";',
+    "",
+    'declare module "i1n" {',
     "  interface I1nKeys {",
   ];
 
@@ -96,22 +103,6 @@ export function generateTypeDefinitions(
   }
 
   lines.push("  }");
-  lines.push("");
-  lines.push("  type I1nKey = keyof I1nKeys;");
-  lines.push("");
-  lines.push("  function t<K extends I1nKey>(");
-  lines.push("    key: K,");
-  lines.push(
-    "    ...args: I1nKeys[K] extends Record<string, never> ? [] : [variables: I1nKeys[K]]",
-  );
-  lines.push("  ): string;");
-  lines.push("");
-  lines.push("  function init(options: { locale: string; resources: Record<string, any> }): void;");
-  lines.push("  function setLocale(locale: string): void;");
-  lines.push("  function getLocale(): string;");
-  lines.push("");
-  lines.push("  type EngineFn = (key: string, params?: Record<string, any>) => string;");
-  lines.push("  function registerI1n(engine: EngineFn | null): void;");
   lines.push("}");
   lines.push("");
 

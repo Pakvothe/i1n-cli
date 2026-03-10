@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { I1nParser, Language, ParseResult, ParseWarning, Wording } from "../shared/types.js";
+import type {
+  I1nParser,
+  Language,
+  ParseResult,
+  ParseWarning,
+  Wording,
+} from "../shared/types.js";
 import { flattenObject, unflattenObject, safePathSegment } from "./utils.js";
 
 const LOCALE_PATTERN = /^[a-z]{2}([_-][a-zA-Z]{2,4})?$/;
@@ -55,18 +61,24 @@ export const jsonNestedParser: I1nParser = {
 
         const flat = flattenObject(content);
 
-        for (const [key, value] of Object.entries(flat)) {
+        for (let [key, value] of Object.entries(flat)) {
           if (!key) continue;
+
+          // Strip redundant root namespace if it matches the filename
+          if (key.startsWith(`${namespace}.`)) {
+            key = key.slice(namespace.length + 1);
+          }
+
           const mapKey = `${namespace}::${key}`;
           const existing = wordingMap.get(mapKey);
 
           if (existing) {
-            existing.value_json[lang] = value;
+            existing.value_json[lang] = value as string;
           } else {
             wordingMap.set(mapKey, {
               key,
               namespace,
-              value_json: { [lang]: value },
+              value_json: { [lang]: value as string },
             });
           }
         }
@@ -104,8 +116,15 @@ export const jsonNestedParser: I1nParser = {
 
       for (const [namespace, flat] of namespaces) {
         const nested = unflattenObject(flat);
-        const filePath = path.join(langDir, `${safePathSegment(namespace)}.json`);
-        fs.writeFileSync(filePath, JSON.stringify(nested, null, 2) + "\n", "utf-8");
+        const filePath = path.join(
+          langDir,
+          `${safePathSegment(namespace)}.json`,
+        );
+        fs.writeFileSync(
+          filePath,
+          JSON.stringify(nested, null, 2) + "\n",
+          "utf-8",
+        );
       }
     }
   },
