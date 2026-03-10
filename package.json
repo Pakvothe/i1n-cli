@@ -21,7 +21,8 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "test": "bun test"
+    "test": "bun test",
+    "prepublishOnly": "bun run build && bun test"
   },
   "dependencies": {
     "@clack/prompts": "^0.9.1",

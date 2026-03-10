@@ -11,9 +11,11 @@ import type {
   ValidateResponse,
 } from "./types.js";
 
-const SUPABASE_URL = "http://127.0.0.1:54321";
+// Default: production. Override with env vars for local development.
+const SUPABASE_URL =
+  process.env.I1N_SUPABASE_URL || "https://YOUR_PROJECT_REF.supabase.co";
 const SUPABASE_ANON_KEY =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0";
+  process.env.I1N_SUPABASE_ANON_KEY || "YOUR_PRODUCTION_ANON_KEY";
 
 type Action = "validate" | "push" | "pull" | "translate" | "estimate-translate" | "translation-progress" | "project-settings" | "project-limits" | "add-language";
 
