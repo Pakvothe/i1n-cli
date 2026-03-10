@@ -50,7 +50,7 @@ i1n init
 # 2. Sync local wordings to the cloud
 i1n push
 
-# 3. Pull translations & generate types
+# 3. Pull translations & get zero-config types
 i1n pull
 ```
 
@@ -124,29 +124,36 @@ Use the i1n native engine directly. No external dependencies needed.
 ```typescript
 import { init, t, setLocale } from "i1n";
 
-// Load your translation resources (from i1n pull output or your own files)
+// Load your translation resources
 init({
   locale: "en_us",
   resources: {
     en_us: {
-      common: { greeting: "Hello {name}", farewell: "Goodbye" },
+      auth: { login: "Login", title: "Welcome back, {user}" },
       items_one: "One item",
       items_other: "{count} items",
     },
     es_es: {
-      common: { greeting: "Hola {name}", farewell: "Adiós" },
+      auth: { login: "Entrar", title: "Bienvenido de nuevo, {user}" },
       items_one: "Un elemento",
       items_other: "{count} elementos",
     },
   },
 });
 
-t("common.greeting", { name: "World" }); // "Hello World"
+// Autocomplete and type-safety work out of the box after 'i1n pull'
+t("auth.login"); // "Login"
+
+// Support for default values (useful during development)
+t("new.key", { defaultValue: "Coming soon..." }); // "Coming soon..."
+
+// Variables & Plurals
+t("auth.title", { user: "Fran" }); // "Welcome back, Fran"
 t("items", { count: 5 }); // "5 items"
 
 // Switch language at runtime
 setLocale("es_es");
-t("common.greeting", { name: "World" }); // "Hola World"
+t("auth.login"); // "Entrar"
 ```
 
 **Key resolution** works with both nested and flat structures automatically — use whatever format your project prefers.
@@ -214,23 +221,37 @@ t("greeting", { name: "World" }); // "Hello World"
 For a "plug and play" experience, use this minimalist provider pattern.
 
 ```tsx
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useState, useEffect } from "react";
 import { init, t, getLocale, setLocale as sdkSetLocale } from "i1n";
 
 // 1. Initialize with wordings
+// (In a real app, you'd probably import these from your locales folder)
 init({
   locale: "en_us",
-  resources: { en: { ... }, es: { ... } }
+  resources: {
+    /* ... */
+  },
 });
 
-const I1nContext = createContext({ locale: "en_us" });
+const STORAGE_KEY = "i1n-locale";
+const I1nContext = createContext({
+  locale: "en_us",
+  setLocale: (l: string) => {},
+});
 
-// 2. Simple Provider & Hook
-export function I1nProvider({ children }) {
-  const [locale, setLocaleState] = useState(getLocale());
+// 2. Persistent Provider
+export function I1nProvider({ children, defaultLocale = "en_us" }) {
+  const [locale, setLocaleState] = useState(() => {
+    return localStorage.getItem(STORAGE_KEY) || defaultLocale;
+  });
+
+  // Keep SDK in sync
+  useEffect(() => {
+    sdkSetLocale(locale);
+  }, [locale]);
 
   const setLocale = (newLocale: string) => {
-    sdkSetLocale(newLocale);
+    localStorage.setItem(STORAGE_KEY, newLocale);
     setLocaleState(newLocale);
   };
 
@@ -241,6 +262,7 @@ export function I1nProvider({ children }) {
   );
 }
 
+// 3. Simple Hook
 export const useI1n = () => ({ t, ...useContext(I1nContext) });
 ```
 
@@ -248,7 +270,13 @@ Usage:
 
 ```tsx
 const { t, setLocale } = useI1n();
-return <button onClick={() => setLocale("es_es")}>{t("auth.title")}</button>;
+
+return (
+  <div>
+    <h1>{t("auth.title", { user: "Fran" })}</h1>
+    <button onClick={() => setLocale("es_es")}>Español</button>
+  </div>
+);
 ```
 
 ### Non-JS Platforms
@@ -269,8 +297,8 @@ Flutter, Android, and iOS projects don't use the SDK. They use the translation f
 
 The CLI generates a lightweight declaration file (`i1n.d.ts`) that automatically augments the `i1n` package with your project's specific keys.
 
-1. **Pull**: Run `i1n pull`. The CLI automatically generates `locales/i1n.d.ts` and updates your `tsconfig.json` or `jsconfig.json`.
-2. **Usage**: Import `t` from `i1n` and get full autocomplete + compile-time checking.
+1. **Pull**: Run `i1n pull`. The CLI generates `locales/i1n.d.ts` and **automatically updates** your `tsconfig.json` so your IDE finds them immediately.
+2. **Usage**: Import `t` from `i1n` and get full autocomplete + compile-time checking. No manual path mapping required.
 
 ```typescript
 import { t } from "i1n";
