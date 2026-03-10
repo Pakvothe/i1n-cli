@@ -13,11 +13,21 @@ import type {
 
 // Default: production. Override with env vars for local development.
 const SUPABASE_URL =
-  process.env.I1N_SUPABASE_URL || "https://YOUR_PROJECT_REF.supabase.co";
+  process.env.I1N_SUPABASE_URL || "https://obbmugzyikyownlqhfip.supabase.co";
 const SUPABASE_ANON_KEY =
-  process.env.I1N_SUPABASE_ANON_KEY || "YOUR_PRODUCTION_ANON_KEY";
+  process.env.I1N_SUPABASE_ANON_KEY ||
+  "sb_publishable_gkQ07M9FkSNL2RHmseUJlQ_ruhytKsq";
 
-type Action = "validate" | "push" | "pull" | "translate" | "estimate-translate" | "translation-progress" | "project-settings" | "project-limits" | "add-language";
+type Action =
+  | "validate"
+  | "push"
+  | "pull"
+  | "translate"
+  | "estimate-translate"
+  | "translation-progress"
+  | "project-settings"
+  | "project-limits"
+  | "add-language";
 
 type ActionResponseMap = {
   validate: ValidateResponse;
