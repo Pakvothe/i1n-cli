@@ -24,8 +24,14 @@ function writeFile(filePath: string, content: string) {
   fs.writeFileSync(filePath, content, "utf-8");
 }
 
-function findWording(wordings: Wording[], key: string, namespace?: string): Wording | undefined {
-  return wordings.find((w) => w.key === key && (!namespace || w.namespace === namespace));
+function findWording(
+  wordings: Wording[],
+  key: string,
+  namespace?: string,
+): Wording | undefined {
+  return wordings.find(
+    (w) => w.key === key && (!namespace || w.namespace === namespace),
+  );
 }
 
 const LANGS: Language[] = [
@@ -36,18 +42,26 @@ const LANGS: Language[] = [
 describe("json-nested parser", () => {
   let dir: string;
 
-  beforeEach(() => { dir = tmpDir(); });
+  beforeEach(() => {
+    dir = tmpDir();
+  });
   afterEach(() => cleanup(dir));
 
   it("reads nested json files across locales", () => {
-    writeFile(path.join(dir, "en/common.json"), JSON.stringify({
-      greeting: "Hello",
-      nested: { deep: "World" },
-    }));
-    writeFile(path.join(dir, "es/common.json"), JSON.stringify({
-      greeting: "Hola",
-      nested: { deep: "Mundo" },
-    }));
+    writeFile(
+      path.join(dir, "en/common.json"),
+      JSON.stringify({
+        greeting: "Hello",
+        nested: { deep: "World" },
+      }),
+    );
+    writeFile(
+      path.join(dir, "es/common.json"),
+      JSON.stringify({
+        greeting: "Hola",
+        nested: { deep: "Mundo" },
+      }),
+    );
 
     const { wordings, warnings } = jsonNestedParser.read(dir, "en");
 
@@ -64,7 +78,10 @@ describe("json-nested parser", () => {
 
   it("handles multiple namespaces", () => {
     writeFile(path.join(dir, "en/common.json"), JSON.stringify({ ok: "OK" }));
-    writeFile(path.join(dir, "en/errors.json"), JSON.stringify({ notFound: "Not Found" }));
+    writeFile(
+      path.join(dir, "en/errors.json"),
+      JSON.stringify({ notFound: "Not Found" }),
+    );
 
     const { wordings } = jsonNestedParser.read(dir, "en");
     expect(wordings).toHaveLength(2);
@@ -74,7 +91,10 @@ describe("json-nested parser", () => {
 
   it("warns on corrupt json", () => {
     writeFile(path.join(dir, "en/broken.json"), "NOT JSON {{{");
-    writeFile(path.join(dir, "en/valid.json"), JSON.stringify({ key: "value" }));
+    writeFile(
+      path.join(dir, "en/valid.json"),
+      JSON.stringify({ key: "value" }),
+    );
 
     const { wordings, warnings } = jsonNestedParser.read(dir, "en");
     expect(warnings).toHaveLength(1);
@@ -92,13 +112,19 @@ describe("json-nested parser", () => {
   });
 
   it("returns empty for non-existent directory", () => {
-    const { wordings, warnings } = jsonNestedParser.read("/tmp/does-not-exist-i1n", "en");
+    const { wordings, warnings } = jsonNestedParser.read(
+      "/tmp/does-not-exist-i1n",
+      "en",
+    );
     expect(wordings).toHaveLength(0);
     expect(warnings).toHaveLength(0);
   });
 
   it("ignores directories that don't match locale pattern", () => {
-    writeFile(path.join(dir, "node_modules/file.json"), JSON.stringify({ a: "b" }));
+    writeFile(
+      path.join(dir, "node_modules/file.json"),
+      JSON.stringify({ a: "b" }),
+    );
     writeFile(path.join(dir, ".cache/file.json"), JSON.stringify({ a: "b" }));
 
     const { wordings } = jsonNestedParser.read(dir, "en");
@@ -107,8 +133,16 @@ describe("json-nested parser", () => {
 
   it("roundtrips correctly", () => {
     const original: Wording[] = [
-      { key: "hello", namespace: "common", value_json: { en: "Hello", es: "Hola" } },
-      { key: "nested.key", namespace: "common", value_json: { en: "Nested", es: "Anidado" } },
+      {
+        key: "hello",
+        namespace: "common",
+        value_json: { en: "Hello", es: "Hola" },
+      },
+      {
+        key: "nested.key",
+        namespace: "common",
+        value_json: { en: "Nested", es: "Anidado" },
+      },
     ];
 
     jsonNestedParser.write(dir, original, LANGS);
@@ -124,29 +158,52 @@ describe("json-nested parser", () => {
   });
 
   it("converts numbers and booleans to strings", () => {
-    writeFile(path.join(dir, "en/common.json"), JSON.stringify({
-      count: 42,
-      active: true,
-    }));
+    writeFile(
+      path.join(dir, "en/common.json"),
+      JSON.stringify({
+        count: 42,
+        active: true,
+      }),
+    );
 
     const { wordings } = jsonNestedParser.read(dir, "en");
     expect(wordings).toHaveLength(2);
     expect(findWording(wordings, "count")?.value_json.en).toBe("42");
     expect(findWording(wordings, "active")?.value_json.en).toBe("true");
   });
+
+  it("strips redundant namespace when writing dirty keys", () => {
+    const wordings: Wording[] = [
+      { key: "common.hello", namespace: "common", value_json: { en: "Hi" } },
+    ];
+
+    jsonNestedParser.write(dir, wordings, LANGS);
+    const filePath = path.join(dir, "en/common.json");
+    const content = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+
+    // Should NOT be { "common": { "hello": "Hi" } }
+    // Should BE { "hello": "Hi" }
+    expect(content.common).toBeUndefined();
+    expect(content.hello).toBe("Hi");
+  });
 });
 
 describe("json-flat parser", () => {
   let dir: string;
 
-  beforeEach(() => { dir = tmpDir(); });
+  beforeEach(() => {
+    dir = tmpDir();
+  });
   afterEach(() => cleanup(dir));
 
   it("reads flat key-value pairs", () => {
-    writeFile(path.join(dir, "en/common.json"), JSON.stringify({
-      "greeting": "Hello",
-      "nav.home": "Home",
-    }));
+    writeFile(
+      path.join(dir, "en/common.json"),
+      JSON.stringify({
+        greeting: "Hello",
+        "nav.home": "Home",
+      }),
+    );
 
     const { wordings } = jsonFlatParser.read(dir, "en");
     expect(wordings).toHaveLength(2);
@@ -155,16 +212,21 @@ describe("json-flat parser", () => {
   });
 
   it("warns on non-string values", () => {
-    writeFile(path.join(dir, "en/common.json"), JSON.stringify({
-      valid: "string",
-      nested: { not: "flat" },
-      number: 123,
-    }));
+    writeFile(
+      path.join(dir, "en/common.json"),
+      JSON.stringify({
+        valid: "string",
+        nested: { not: "flat" },
+        number: 123,
+      }),
+    );
 
     const { wordings, warnings } = jsonFlatParser.read(dir, "en");
     expect(wordings).toHaveLength(1);
     expect(warnings.length).toBeGreaterThan(0);
-    expect(warnings.some((w) => w.message.includes("non-string value"))).toBe(true);
+    expect(warnings.some((w) => w.message.includes("non-string value"))).toBe(
+      true,
+    );
   });
 
   it("warns on corrupt json", () => {
@@ -177,7 +239,11 @@ describe("json-flat parser", () => {
 
   it("roundtrips correctly", () => {
     const original: Wording[] = [
-      { key: "title", namespace: "ui", value_json: { en: "Title", es: "Título" } },
+      {
+        key: "title",
+        namespace: "ui",
+        value_json: { en: "Title", es: "Título" },
+      },
     ];
 
     jsonFlatParser.write(dir, original, LANGS);
@@ -192,19 +258,27 @@ describe("json-flat parser", () => {
 describe("arb parser", () => {
   let dir: string;
 
-  beforeEach(() => { dir = tmpDir(); });
+  beforeEach(() => {
+    dir = tmpDir();
+  });
   afterEach(() => cleanup(dir));
 
   it("reads arb files with @@locale", () => {
-    writeFile(path.join(dir, "app_en.arb"), JSON.stringify({
-      "@@locale": "en",
-      "hello": "Hello",
-      "@hello": { description: "Greeting" },
-    }));
-    writeFile(path.join(dir, "app_es.arb"), JSON.stringify({
-      "@@locale": "es",
-      "hello": "Hola",
-    }));
+    writeFile(
+      path.join(dir, "app_en.arb"),
+      JSON.stringify({
+        "@@locale": "en",
+        hello: "Hello",
+        "@hello": { description: "Greeting" },
+      }),
+    );
+    writeFile(
+      path.join(dir, "app_es.arb"),
+      JSON.stringify({
+        "@@locale": "es",
+        hello: "Hola",
+      }),
+    );
 
     const { wordings, warnings } = arbParser.read(dir, "en");
     expect(warnings).toHaveLength(0);
@@ -218,7 +292,10 @@ describe("arb parser", () => {
   });
 
   it("extracts locale from filename when @@locale missing", () => {
-    writeFile(path.join(dir, "app_fr.arb"), JSON.stringify({ "bonjour": "Bonjour" }));
+    writeFile(
+      path.join(dir, "app_fr.arb"),
+      JSON.stringify({ bonjour: "Bonjour" }),
+    );
 
     const { wordings } = arbParser.read(dir, "fr");
     expect(wordings).toHaveLength(1);
@@ -226,7 +303,7 @@ describe("arb parser", () => {
   });
 
   it("warns when locale cannot be determined", () => {
-    writeFile(path.join(dir, "random.arb"), JSON.stringify({ "key": "value" }));
+    writeFile(path.join(dir, "random.arb"), JSON.stringify({ key: "value" }));
 
     const { warnings } = arbParser.read(dir, "en");
     expect(warnings).toHaveLength(1);
@@ -243,7 +320,12 @@ describe("arb parser", () => {
 
   it("roundtrips correctly", () => {
     const original: Wording[] = [
-      { key: "greeting", namespace: "l10n", value_json: { en: "Hi", es: "Hola" }, description: "A greeting" },
+      {
+        key: "greeting",
+        namespace: "l10n",
+        value_json: { en: "Hi", es: "Hola" },
+        description: "A greeting",
+      },
     ];
 
     arbParser.write(dir, original, LANGS);
@@ -260,12 +342,20 @@ describe("arb parser", () => {
 describe("yaml parser", () => {
   let dir: string;
 
-  beforeEach(() => { dir = tmpDir(); });
+  beforeEach(() => {
+    dir = tmpDir();
+  });
   afterEach(() => cleanup(dir));
 
   it("reads rails-style yaml files", () => {
-    writeFile(path.join(dir, "en.yml"), `en:\n  activerecord:\n    errors:\n      blank: "can't be blank"\n`);
-    writeFile(path.join(dir, "es.yml"), `es:\n  activerecord:\n    errors:\n      blank: "no puede estar vacío"\n`);
+    writeFile(
+      path.join(dir, "en.yml"),
+      `en:\n  activerecord:\n    errors:\n      blank: "can't be blank"\n`,
+    );
+    writeFile(
+      path.join(dir, "es.yml"),
+      `es:\n  activerecord:\n    errors:\n      blank: "no puede estar vacío"\n`,
+    );
 
     const { wordings, warnings } = yamlParser.read(dir, "en");
     expect(warnings).toHaveLength(0);
@@ -293,7 +383,11 @@ describe("yaml parser", () => {
 
   it("roundtrips correctly", () => {
     const original: Wording[] = [
-      { key: "title", namespace: "pages", value_json: { en: "Home", es: "Inicio" } },
+      {
+        key: "title",
+        namespace: "pages",
+        value_json: { en: "Home", es: "Inicio" },
+      },
     ];
 
     yamlParser.write(dir, original, LANGS);
@@ -309,7 +403,9 @@ describe("yaml parser", () => {
 describe("android-xml parser", () => {
   let dir: string;
 
-  beforeEach(() => { dir = tmpDir(); });
+  beforeEach(() => {
+    dir = tmpDir();
+  });
   afterEach(() => cleanup(dir));
 
   it("reads strings.xml from values directories", () => {
@@ -355,7 +451,9 @@ describe("android-xml parser", () => {
 
     expect(wordings).toHaveLength(2);
     expect(findWording(wordings, "items_one")?.value_json.en).toBe("%d item");
-    expect(findWording(wordings, "items_other")?.value_json.en).toBe("%d items");
+    expect(findWording(wordings, "items_other")?.value_json.en).toBe(
+      "%d items",
+    );
   });
 
   it("handles xml entity escaping", () => {
@@ -369,8 +467,12 @@ describe("android-xml parser", () => {
     writeFile(path.join(dir, "values/strings.xml"), xml);
     const { wordings } = androidXmlParser.read(dir, "en");
 
-    expect(findWording(wordings, "terms")?.value_json.en).toBe("Terms & Conditions");
-    expect(findWording(wordings, "quote")?.value_json.en).toBe('She said "hello"');
+    expect(findWording(wordings, "terms")?.value_json.en).toBe(
+      "Terms & Conditions",
+    );
+    expect(findWording(wordings, "quote")?.value_json.en).toBe(
+      'She said "hello"',
+    );
     expect(findWording(wordings, "apos")?.value_json.en).toBe("It's fine");
   });
 
@@ -384,7 +486,11 @@ describe("android-xml parser", () => {
 
   it("roundtrips correctly", () => {
     const original: Wording[] = [
-      { key: "title", namespace: "strings", value_json: { en: "App", es: "Aplicación" } },
+      {
+        key: "title",
+        namespace: "strings",
+        value_json: { en: "App", es: "Aplicación" },
+      },
       { key: "ampersand", namespace: "strings", value_json: { en: "A & B" } },
     ];
 
@@ -400,12 +506,20 @@ describe("android-xml parser", () => {
 describe("apple-strings parser", () => {
   let dir: string;
 
-  beforeEach(() => { dir = tmpDir(); });
+  beforeEach(() => {
+    dir = tmpDir();
+  });
   afterEach(() => cleanup(dir));
 
   it("reads .lproj files", () => {
-    writeFile(path.join(dir, "en.lproj/Localizable.strings"), `"hello" = "Hello";\n"world" = "World";\n`);
-    writeFile(path.join(dir, "es.lproj/Localizable.strings"), `"hello" = "Hola";\n"world" = "Mundo";\n`);
+    writeFile(
+      path.join(dir, "en.lproj/Localizable.strings"),
+      `"hello" = "Hello";\n"world" = "World";\n`,
+    );
+    writeFile(
+      path.join(dir, "es.lproj/Localizable.strings"),
+      `"hello" = "Hola";\n"world" = "Mundo";\n`,
+    );
 
     const { wordings, warnings } = appleStringsParser.read(dir, "en");
     expect(warnings).toHaveLength(0);
@@ -422,11 +536,16 @@ describe("apple-strings parser", () => {
     writeFile(path.join(dir, "en.lproj/Localizable.strings"), content);
 
     const { wordings } = appleStringsParser.read(dir, "en");
-    expect(findWording(wordings, "greeting")?.description).toBe("A greeting message");
+    expect(findWording(wordings, "greeting")?.description).toBe(
+      "A greeting message",
+    );
   });
 
   it("handles escape sequences", () => {
-    writeFile(path.join(dir, "en.lproj/Localizable.strings"), `"line" = "first\\nsecond";\n"quote" = "say \\"hi\\"";\n"backslash" = "path\\\\dir";\n`);
+    writeFile(
+      path.join(dir, "en.lproj/Localizable.strings"),
+      `"line" = "first\\nsecond";\n"quote" = "say \\"hi\\"";\n"backslash" = "path\\\\dir";\n`,
+    );
 
     const { wordings } = appleStringsParser.read(dir, "en");
     expect(findWording(wordings, "line")?.value_json.en).toBe("first\nsecond");
@@ -435,7 +554,10 @@ describe("apple-strings parser", () => {
   });
 
   it("warns on non-empty file with no entries", () => {
-    writeFile(path.join(dir, "en.lproj/Localizable.strings"), "this is not a strings file\n");
+    writeFile(
+      path.join(dir, "en.lproj/Localizable.strings"),
+      "this is not a strings file\n",
+    );
 
     const { warnings } = appleStringsParser.read(dir, "en");
     expect(warnings).toHaveLength(1);
@@ -444,8 +566,16 @@ describe("apple-strings parser", () => {
 
   it("roundtrips correctly", () => {
     const original: Wording[] = [
-      { key: "greeting", namespace: "localizable", value_json: { en: "Hello", es: "Hola" } },
-      { key: "with_newline", namespace: "localizable", value_json: { en: "line1\nline2" } },
+      {
+        key: "greeting",
+        namespace: "localizable",
+        value_json: { en: "Hello", es: "Hola" },
+      },
+      {
+        key: "with_newline",
+        namespace: "localizable",
+        value_json: { en: "line1\nline2" },
+      },
     ];
 
     appleStringsParser.write(dir, original, LANGS);
@@ -453,18 +583,25 @@ describe("apple-strings parser", () => {
 
     expect(findWording(wordings, "greeting")?.value_json.en).toBe("Hello");
     expect(findWording(wordings, "greeting")?.value_json.es).toBe("Hola");
-    expect(findWording(wordings, "with_newline")?.value_json.en).toBe("line1\nline2");
+    expect(findWording(wordings, "with_newline")?.value_json.en).toBe(
+      "line1\nline2",
+    );
   });
 });
 
 describe("typescript parser", () => {
   let dir: string;
 
-  beforeEach(() => { dir = tmpDir(); });
+  beforeEach(() => {
+    dir = tmpDir();
+  });
   afterEach(() => cleanup(dir));
 
   it("reads export default objects", () => {
-    writeFile(path.join(dir, "en/common.ts"), `export default {\n  hello: "Hello",\n  nested: {\n    key: "Value"\n  }\n} as const;\n`);
+    writeFile(
+      path.join(dir, "en/common.ts"),
+      `export default {\n  hello: "Hello",\n  nested: {\n    key: "Value"\n  }\n} as const;\n`,
+    );
 
     const { wordings, warnings } = typescriptParser.read(dir, "en");
     expect(warnings).toHaveLength(0);
@@ -474,7 +611,10 @@ describe("typescript parser", () => {
   });
 
   it("reads .js files too", () => {
-    writeFile(path.join(dir, "en/ui.js"), `export default {\n  title: "Title"\n};\n`);
+    writeFile(
+      path.join(dir, "en/ui.js"),
+      `export default {\n  title: "Title"\n};\n`,
+    );
 
     const { wordings } = typescriptParser.read(dir, "en");
     expect(wordings).toHaveLength(1);
@@ -482,7 +622,10 @@ describe("typescript parser", () => {
   });
 
   it("warns when no default export found", () => {
-    writeFile(path.join(dir, "en/bad.ts"), `export const translations = { key: "value" };\n`);
+    writeFile(
+      path.join(dir, "en/bad.ts"),
+      `export const translations = { key: "value" };\n`,
+    );
 
     const { warnings } = typescriptParser.read(dir, "en");
     expect(warnings).toHaveLength(1);
@@ -490,7 +633,10 @@ describe("typescript parser", () => {
   });
 
   it("warns when object literal can't be parsed", () => {
-    writeFile(path.join(dir, "en/bad.ts"), `export default {\n  key: someVariable,\n};\n`);
+    writeFile(
+      path.join(dir, "en/bad.ts"),
+      `export default {\n  key: someVariable,\n};\n`,
+    );
 
     const { warnings } = typescriptParser.read(dir, "en");
     expect(warnings).toHaveLength(1);
@@ -499,7 +645,11 @@ describe("typescript parser", () => {
 
   it("roundtrips correctly", () => {
     const original: Wording[] = [
-      { key: "greeting", namespace: "common", value_json: { en: "Hi", es: "Hola" } },
+      {
+        key: "greeting",
+        namespace: "common",
+        value_json: { en: "Hi", es: "Hola" },
+      },
     ];
 
     typescriptParser.write(dir, original, LANGS);

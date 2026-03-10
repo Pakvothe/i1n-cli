@@ -232,6 +232,17 @@ describe("generateTypeDefinitions", () => {
     const output = generateTypeDefinitions(wordings, "en");
     expect(output).toContain("Record<string, never>;");
   });
+
+  it("strips redundant namespace from dirty keys", () => {
+    const wordings: Wording[] = [
+      { key: "auth.login", namespace: "auth", value_json: { en: "Login" } },
+    ];
+
+    const output = generateTypeDefinitions(wordings, "en");
+    // Should NOT contain "auth.auth.login"
+    expect(output).toContain('    "auth.login": Record<string, never>;');
+    expect(output).not.toContain('"auth.auth.login"');
+  });
 });
 
 describe("project config", () => {

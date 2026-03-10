@@ -103,10 +103,15 @@ export const jsonNestedParser: I1nParser = {
         }
         const langMap = grouped.get(lang.code)!;
 
+        // Strip redundant namespace: if key is "auth.login" and namespace is "auth", use "login"
+        const cleanKey = wording.key.startsWith(`${wording.namespace}.`)
+          ? wording.key.slice(wording.namespace.length + 1)
+          : wording.key;
+
         if (!langMap.has(wording.namespace)) {
           langMap.set(wording.namespace, {});
         }
-        langMap.get(wording.namespace)![wording.key] = value;
+        langMap.get(wording.namespace)![cleanKey] = value;
       }
     }
 

@@ -39,17 +39,25 @@ export function generateTypeDefinitions(
   sourceLocale: string,
 ): string {
   const sorted = [...wordings].sort((a, b) => {
-    const ka = `${a.namespace}.${a.key}`;
-    const kb = `${b.namespace}.${b.key}`;
+    const ka = a.key.startsWith(`${a.namespace}.`)
+      ? a.key
+      : `${a.namespace}.${a.key}`;
+    const kb = b.key.startsWith(`${b.namespace}.`)
+      ? b.key
+      : `${b.namespace}.${b.key}`;
     return ka.localeCompare(kb);
   });
+
+  // Helper to get the canonical full key (stripping redundant namespace)
+  const getFullKey = (w: Wording) =>
+    w.key.startsWith(`${w.namespace}.`) ? w.key : `${w.namespace}.${w.key}`;
 
   // Collect plural groups: baseKey → set of extracted variables across all variants
   const pluralGroups = new Map<string, Set<string>>();
   const pluralVariantKeys = new Set<string>();
 
   for (const wording of sorted) {
-    const fullKey = `${wording.namespace}.${wording.key}`;
+    const fullKey = getFullKey(wording);
     const base = getPluralBase(fullKey);
     if (base) {
       pluralVariantKeys.add(fullKey);
@@ -73,7 +81,7 @@ export function generateTypeDefinitions(
   const emittedKeys = new Set<string>();
 
   for (const wording of sorted) {
-    const fullKey = `${wording.namespace}.${wording.key}`;
+    const fullKey = getFullKey(wording);
 
     // Skip individual plural variant keys (_zero, _one, _other)
     if (pluralVariantKeys.has(fullKey)) {
