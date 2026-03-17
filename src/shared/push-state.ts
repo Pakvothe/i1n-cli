@@ -8,7 +8,14 @@ const STATE_FILE = ".i1n-push-state.json";
 type PushState = Record<string, string>; // "namespace:key" → hash
 
 function hashWording(w: Wording): string {
-  const content = JSON.stringify(w.value_json);
+  // Sort keys for deterministic hashing — pull and parser may return keys in different order
+  const sorted = Object.keys(w.value_json)
+    .sort()
+    .reduce<Record<string, string>>((acc, k) => {
+      acc[k] = w.value_json[k];
+      return acc;
+    }, {});
+  const content = JSON.stringify(sorted);
   return crypto.createHash("md5").update(content).digest("hex");
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "i1n",
-  "version": "0.1.3",
+  "version": "1.0.0",
   "description": "Localization as code — CLI and SDK for i1n",
   "type": "module",
   "bin": {
