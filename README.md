@@ -97,6 +97,51 @@ i1n pull
 - Generates project-specific rules for **Cursor (`.mdc`)**, **Claude Code (`CLAUDE.md`)**, **Windsurf**, and more.
 - Ensures AI agents follow your naming conventions, file structure, and brand voice.
 
+### 🔌 `i1n mcp`
+
+**MCP server for AI coding assistants.**
+
+Starts a [Model Context Protocol](https://modelcontextprotocol.io) server that lets Cursor, Claude Code, Windsurf, and other AI assistants execute i1n commands directly from your IDE.
+
+```bash
+# Add to Claude Code
+claude mcp add i1n -- npx i1n mcp
+
+# Or add to .mcp.json / cursor config
+```
+
+```json
+{
+  "mcpServers": {
+    "i1n": {
+      "command": "npx",
+      "args": ["i1n", "mcp"]
+    }
+  }
+}
+```
+
+**7 tools available:**
+
+| Tool | Description |
+| ---- | ----------- |
+| `i1n_status` | Get project status, plan, limits, and active languages |
+| `i1n_push` | Push local translation files with automatic diff detection |
+| `i1n_pull` | Pull translations and generate type-safe TypeScript definitions |
+| `i1n_translate` | Translate keys to specified languages using AI |
+| `i1n_add_language` | Add new languages with optional auto-translation |
+| `i1n_extract_and_translate` | Extract strings from code, push as keys, translate to all languages |
+| `i1n_search` | Search existing translation keys by name or value |
+
+**The killer workflow** — tell your AI agent "internationalize this component":
+
+1. The agent reads your file and identifies hardcoded strings
+2. It calls `i1n_extract_and_translate` with the extracted strings
+3. i1n pushes the keys, translates to all active languages, generates types
+4. The agent rewrites your component with `t('key')` calls
+
+A 60-minute task in 30 seconds.
+
 ---
 
 ## 📁 Supported Formats
