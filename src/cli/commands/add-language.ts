@@ -253,12 +253,20 @@ export const addLanguageCommand = new Command("add-language")
         const aiSpinner = p.spinner();
         aiSpinner.start(`Translating ${result.queued} items with AI...`);
 
-        // Poll for progress with adaptive interval
-        const startTime = Date.now();
+        const MAX_WAIT_MS = 3 * 60 * 1000;
+        const MAX_CONSECUTIVE_ERRORS = 10;
+        const pollStartTime = Date.now();
         let lastMessage = "";
         let pollInterval = 1000;
+        let lastCompleted = 0;
+        let consecutiveErrors = 0;
+        let translationDone = false;
 
         while (true) {
+          if (Date.now() - pollStartTime > MAX_WAIT_MS || consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            break;
+          }
+
           await new Promise((resolve) => setTimeout(resolve, pollInterval));
 
           try {
@@ -267,21 +275,26 @@ export const addLanguageCommand = new Command("add-language")
               { project_id: config.projectId },
               config.apiKey,
             );
+            consecutiveErrors = 0;
 
-            if (progress.status === "done") break;
+            if (progress.status === "done") {
+              translationDone = true;
+              break;
+            }
 
             const { total, completed, remaining } = progress;
             const percentage =
               total > 0 ? Math.round((completed / total) * 100) : 0;
+            const madeProgress = completed > lastCompleted;
+            lastCompleted = completed;
 
-            // Adaptive polling
-            if (completed > 0) {
+            if (madeProgress) {
               pollInterval = Math.max(2000, Math.min(3000, remaining * 100));
             } else {
               pollInterval = Math.min(pollInterval * 1.3, 5000);
             }
 
-            const elapsed = (Date.now() - startTime) / 1000;
+            const elapsed = (Date.now() - pollStartTime) / 1000;
             let etaText = "calculating...";
             if (elapsed > 5 && completed > 0) {
               const rate = completed / elapsed;
@@ -298,12 +311,18 @@ export const addLanguageCommand = new Command("add-language")
               lastMessage = msg;
             }
           } catch {
+            consecutiveErrors++;
             pollInterval = Math.min(pollInterval * 1.5, 10000);
             continue;
           }
         }
 
-        aiSpinner.stop(`Translation complete (${result.queued} items)`);
+        if (translationDone) {
+          aiSpinner.stop(`Translation complete (${result.queued} items)`);
+        } else {
+          aiSpinner.stop("Translation still processing in the background.");
+          p.log.info("Run `i1n pull` in a few minutes to fetch completed translations.");
+        }
       }
 
       if (result.credits_used > 0) {

@@ -14,20 +14,33 @@ import type {
   TranslationProgressResponse,
 } from "../../shared/types.js";
 
+const MAX_WAIT_MS = 3 * 60 * 1000; // 3 minutes
+const MAX_CONSECUTIVE_ERRORS = 10;
+
 /**
  * Polls translation progress until done. Updates spinner message with % and ETA.
+ * Returns true if completed, false if timed out.
  */
 async function waitForTranslation(
   projectId: string,
   apiKey: string,
   spinner: ReturnType<typeof p.spinner>,
-): Promise<void> {
+): Promise<boolean> {
   const startTime = Date.now();
   let lastMessage = "";
-  let pollInterval = 500; // Start fast — workers are already running
+  let pollInterval = 500;
   let lastCompleted = 0;
+  let consecutiveErrors = 0;
 
   while (true) {
+    if (Date.now() - startTime > MAX_WAIT_MS) {
+      return false;
+    }
+
+    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+      return false;
+    }
+
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
 
     let progress: TranslationProgressResponse;
@@ -37,14 +50,15 @@ async function waitForTranslation(
         { project_id: projectId },
         apiKey,
       );
+      consecutiveErrors = 0;
     } catch {
-      // On error, slow down polling
+      consecutiveErrors++;
       pollInterval = Math.min(pollInterval * 1.5, 8000);
       continue;
     }
 
     if (progress.status === "done") {
-      break;
+      return true;
     }
 
     const { total, completed, remaining } = progress;
@@ -52,15 +66,11 @@ async function waitForTranslation(
     const madeProgress = completed > lastCompleted;
     lastCompleted = completed;
 
-    // Adaptive polling: very fast when active, back off when idle
     if (madeProgress) {
-      // Active progress — poll fast (1-2s)
       pollInterval = Math.max(1000, Math.min(2000, remaining * 50));
     } else if (completed > 0) {
-      // Had progress before but stalled — moderate (2-3s)
       pollInterval = Math.min(3000, pollInterval * 1.2);
     } else {
-      // No progress yet (workers starting up) — back off up to 4s
       pollInterval = Math.min(pollInterval * 1.3, 4000);
     }
 
@@ -401,9 +411,14 @@ export const pushCommand = new Command("push")
         const aiSpinner = p.spinner();
         aiSpinner.start(`Translating ${result.queued} items with AI...`);
 
-        await waitForTranslation(config.projectId, config.apiKey, aiSpinner);
+        const completed = await waitForTranslation(config.projectId, config.apiKey, aiSpinner);
 
-        aiSpinner.stop(`Translation complete (${result.queued} items)`);
+        if (completed) {
+          aiSpinner.stop(`Translation complete (${result.queued} items)`);
+        } else {
+          aiSpinner.stop("Translation still processing in the background.");
+          p.log.info("Run `i1n pull` in a few minutes to fetch completed translations.");
+        }
       }
 
       if (result.credits_used > 0) {

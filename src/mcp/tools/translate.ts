@@ -2,50 +2,7 @@ import { readProjectConfig } from "../../shared/config.js";
 import { callCliSync } from "../../shared/supabase.js";
 import { executePull } from "../../cli/commands/pull.js";
 import { text, error } from "./helpers.js";
-import type { TranslationProgressResponse } from "../../shared/types.js";
-
-/**
- * Polls translation progress until done. No spinner — just await+setTimeout loop.
- */
-async function waitForTranslation(
-  projectId: string,
-  apiKey: string,
-): Promise<TranslationProgressResponse> {
-  let pollInterval = 1000;
-  let lastCompleted = 0;
-
-  while (true) {
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
-
-    let progress: TranslationProgressResponse;
-    try {
-      progress = await callCliSync(
-        "translation-progress",
-        { project_id: projectId },
-        apiKey,
-      );
-    } catch {
-      pollInterval = Math.min(pollInterval * 1.5, 5000);
-      continue;
-    }
-
-    if (progress.status === "done") {
-      return progress;
-    }
-
-    const madeProgress = progress.completed > lastCompleted;
-    lastCompleted = progress.completed;
-
-    // Adaptive polling
-    if (madeProgress) {
-      pollInterval = Math.max(1000, Math.min(2000, progress.remaining * 50));
-    } else if (progress.completed > 0) {
-      pollInterval = Math.min(3000, pollInterval * 1.2);
-    } else {
-      pollInterval = Math.min(pollInterval * 1.3, 5000);
-    }
-  }
-}
+import { waitForTranslation } from "./wait-for-translation.js";
 
 export async function handleTranslate({ languages }: { languages: string }) {
   const config = readProjectConfig();
@@ -115,16 +72,23 @@ export async function handleTranslate({ languages }: { languages: string }) {
   if (translateResult.queued > 0) {
     messages.push(`${translateResult.queued} items queued for AI translation. Waiting...`);
 
-    await waitForTranslation(config.projectId, config.apiKey);
+    const waitResult = await waitForTranslation(config.projectId, config.apiKey);
 
-    messages.push("AI translation complete.");
+    if (waitResult.done) {
+      messages.push("AI translation complete.");
+    } else {
+      messages.push(
+        `Translation is still processing in the background (${waitResult.completed} completed so far). ` +
+        `Use the i1n_pull tool in 2-3 minutes to fetch the completed translations.`,
+      );
+    }
   }
 
   if (translateResult.credits_used > 0) {
     messages.push(`Credits used: ${translateResult.credits_used} WU`);
   }
 
-  // Auto-pull to get updated translations
+  // Auto-pull (even on timeout — will get whatever is done so far)
   try {
     const pullResult = await executePull(config);
     messages.push(

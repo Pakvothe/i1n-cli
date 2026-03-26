@@ -2,46 +2,8 @@ import { readProjectConfig } from "../../shared/config.js";
 import { callCliSync } from "../../shared/supabase.js";
 import { executePull } from "../../cli/commands/pull.js";
 import { text, error } from "./helpers.js";
-import type { TranslationProgressResponse, Wording } from "../../shared/types.js";
-
-async function waitForTranslation(
-  projectId: string,
-  apiKey: string,
-): Promise<void> {
-  let pollInterval = 1000;
-  let lastCompleted = 0;
-
-  while (true) {
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
-
-    let progress: TranslationProgressResponse;
-    try {
-      progress = await callCliSync(
-        "translation-progress",
-        { project_id: projectId },
-        apiKey,
-      );
-    } catch {
-      pollInterval = Math.min(pollInterval * 1.5, 5000);
-      continue;
-    }
-
-    if (progress.status === "done") {
-      return;
-    }
-
-    const madeProgress = progress.completed > lastCompleted;
-    lastCompleted = progress.completed;
-
-    if (madeProgress) {
-      pollInterval = Math.max(1000, Math.min(2000, progress.remaining * 50));
-    } else if (progress.completed > 0) {
-      pollInterval = Math.min(3000, pollInterval * 1.2);
-    } else {
-      pollInterval = Math.min(pollInterval * 1.3, 5000);
-    }
-  }
-}
+import { waitForTranslation } from "./wait-for-translation.js";
+import type { Wording } from "../../shared/types.js";
 
 export async function handleExtractAndTranslate({
   strings,
@@ -101,7 +63,6 @@ export async function handleExtractAndTranslate({
       .map((l) => l.trim())
       .filter(Boolean);
   }
-  // If no languages specified, translate to all active languages (backend handles this)
 
   // Estimate translation
   let estimate;
@@ -122,7 +83,6 @@ export async function handleExtractAndTranslate({
 
   if (estimate.estimated_cost === 0) {
     messages.push("All translations are already up to date.");
-    // Still pull to get types
     try {
       const pullResult = await executePull(config);
       messages.push(
@@ -172,8 +132,17 @@ export async function handleExtractAndTranslate({
 
     if (translateResult.queued > 0) {
       messages.push(`${translateResult.queued} items queued for AI translation. Waiting...`);
-      await waitForTranslation(config.projectId, config.apiKey);
-      messages.push("AI translation complete.");
+
+      const waitResult = await waitForTranslation(config.projectId, config.apiKey);
+
+      if (waitResult.done) {
+        messages.push("AI translation complete.");
+      } else {
+        messages.push(
+          `Translation is still processing in the background (${waitResult.completed} completed so far). ` +
+          `Use the i1n_pull tool in 2-3 minutes to fetch the completed translations.`,
+        );
+      }
     }
 
     if (translateResult.credits_used > 0) {
@@ -185,7 +154,7 @@ export async function handleExtractAndTranslate({
     return text(messages.join("\n"));
   }
 
-  // Auto-pull to get updated translations and types
+  // Auto-pull
   try {
     const pullResult = await executePull(config);
     messages.push(
