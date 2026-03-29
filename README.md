@@ -1,26 +1,28 @@
-# i1n 💎
+# i1n
 
-**Localization as code.** The modern architecture to localize apps at the speed of thought.
+**Your app in every language. One command.**
 
-[i1n](https://i1n.ai) bridges the gap between Developers, AI Agents, and Product Teams, making localization a native part of your development workflow rather than a chore.
+[![npm](https://img.shields.io/npm/v/i1n)](https://www.npmjs.com/package/i1n) [![license](https://img.shields.io/npm/l/i1n)](https://github.com/Pakvothe/i1n-cli/blob/main/LICENSE) [![MCP](https://img.shields.io/badge/MCP-7_tools-amber)](https://i1n.ai)
+
+![demo](./demo.gif)
+
+Localization as code. Push your translation keys, AI translates to 182 languages, pull type-safe TypeScript definitions. Built for developers, AI agents, and product teams.
+
+**Free forever** · No credit card · [i1n.ai](https://i1n.ai)
 
 ---
 
-## 🏛️ The i1n Philosophy
+## Why i1n?
 
-i1n is built on three core pillars designed to make localization extremely fast, efficient, and low-maintenance:
+Traditional i18n means dozens of JSON files, zero type safety, hours of copy-pasting, and deploys that break at 2 AM. Existing tools charge $120+/mo and require browser-based workflows.
 
-### 🚀 Dev-First
+i1n is different:
 
-Zero-friction integration with your existing codebase. i1n lives in your terminal and your IDE, providing native type-safety and automated workflows that eliminate manual JSON editing.
-
-### 🤖 AI-Native
-
-Built for the age of AI. i1n provides smart orchestration and context rules that turn your AI agents (Cursor, Claude, Copilot, etc.) into localization experts who understand your project's specific conventions and tone.
-
-### ⚡ Team-Sync
-
-A seamless bridge between Developers, AI Agents, and Product Teams. Localize features as you build them, with zero maintenance overhead and real-time synchronization.
+- **One command** — `i1n push --translate es,fr,ja` and you're done
+- **Type-safe** — auto-generated `i1n.d.ts` with full IDE autocomplete
+- **AI-native** — MCP server for Cursor, Claude Code, Windsurf. Your agent handles i18n for you
+- **Zero migration** — Bridge Mode wraps your existing i18next/next-intl/vue-i18n
+- **6x cheaper** — Free tier included. Pro at $19/mo vs Lokalise at $120/mo
 
 ---
 
@@ -47,10 +49,10 @@ _Supports `npm`, `pnpm`, `yarn`, and `bun`._
 # 1. Initialize (auth + auto-detect setup)
 i1n init
 
-# 2. Sync local wordings to the cloud
+# 2. Push your translation keys
 i1n push
 
-# 3. Pull translations & get zero-config types
+# 3. Pull translations + auto-generated TypeScript types
 i1n pull
 ```
 
@@ -74,7 +76,7 @@ i1n pull
 
 - Detects new keys and source changes.
 - **Smart Translate**: Offers to translate missing keys with a cost estimate before proceeding.
-- Uses `WU` (Wording Units) efficiently with a robust caching layer.
+- Efficient caching layer — repeated translations cost a fraction of fresh ones.
 
 ### ⬇️ `i1n pull`
 
@@ -87,7 +89,7 @@ i1n pull
 
 **Real-time usage tracking.**
 
-- View your current plan and wording/credit usage.
+- View your current plan and credit usage.
 - Monitor active language slots and available capacity.
 
 ### 🧠 `i1n setup-ai`
@@ -357,13 +359,18 @@ t("auth.login.titlse");
 
 ---
 
-## 💳 Credits & Billing
+## 💳 Pricing
 
-i1n uses **Wording Units (WU)** for fair billing:
+| Plan | Price | Keys | Languages | AI translations/mo |
+|------|-------|------|-----------|--------------------|
+| **Starter** | $0 | 600 | 2 | 2,000 |
+| **Pro** | $19/mo | 5,000 | 5 | 10,000 |
+| **Business** | $49/mo | 15,000 | 12 | 20,000 |
+| **Enterprise** | Custom | Custom | 182 | Custom |
 
-- **AI Translation**: 1.0 WU per item.
-- **Smart Cache**: Only 0.01–0.2 WU per hit.
-- **Refills**: Credits refill automatically based on your plan cycle.
+CLI, SDK, and MCP server are free on every plan. No credit card required for Starter.
+
+Pro lifetime from $99 — [only for the first 200 users](https://i1n.ai/pricing).
 
 ---
 
