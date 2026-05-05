@@ -10,6 +10,7 @@ import { handleTranslate } from "./tools/translate.js";
 import { handleAddLanguage } from "./tools/add-language.js";
 import { handleExtractAndTranslate } from "./tools/extract-and-translate.js";
 import { handleSearch } from "./tools/search.js";
+import { handleSetupBridge } from "./tools/setup-bridge.js";
 import { getProjectResource } from "./resources/project.js";
 
 function createServer(): McpServer {
@@ -45,7 +46,7 @@ function createServer(): McpServer {
     "i1n_translate",
     "Translate to specified languages with AI. Estimates cost, translates, polls for completion, and auto-pulls results.",
     {
-      languages: z.string().describe("Comma-separated target language codes (e.g. 'es,fr,de')"),
+      languages: z.string().min(1).max(500).describe("Comma-separated target language codes (e.g. 'es,fr,de')"),
     },
     async (params) => handleTranslate(params),
   );
@@ -54,7 +55,7 @@ function createServer(): McpServer {
     "i1n_add_language",
     "Add new languages to the project and optionally auto-translate existing keys",
     {
-      languages: z.string().describe("Comma-separated language codes to add (e.g. 'es,fr,de')"),
+      languages: z.string().min(1).max(500).describe("Comma-separated language codes to add (e.g. 'es,fr,de')"),
       translate: z.boolean().optional().default(true).describe("Whether to auto-translate existing keys to the new languages (default: true)"),
     },
     async (params) => handleAddLanguage(params),
@@ -65,11 +66,11 @@ function createServer(): McpServer {
     "Accept extracted strings, push them to i1n, translate to all active languages, and pull updated types. Pass an array of {key, value, namespace?} objects.",
     {
       strings: z.array(z.object({
-        key: z.string().describe("Translation key (e.g. 'common.greeting')"),
-        value: z.string().describe("Source language value (e.g. 'Hello, world!')"),
-        namespace: z.string().optional().describe("Optional namespace (defaults to 'default')"),
-      })).describe("Array of strings to extract and translate"),
-      languages: z.string().optional().describe("Optional comma-separated target language codes. If omitted, translates to all active languages."),
+        key: z.string().min(1).max(1000).describe("Translation key (e.g. 'common.greeting')"),
+        value: z.string().min(1).max(50000).describe("Source language value (e.g. 'Hello, world!')"),
+        namespace: z.string().max(200).optional().describe("Optional namespace (defaults to 'default')"),
+      })).min(1).max(5000).describe("Array of strings to extract and translate"),
+      languages: z.string().max(500).optional().describe("Optional comma-separated target language codes. If omitted, translates to all active languages."),
     },
     async (params) => handleExtractAndTranslate(params),
   );
@@ -78,9 +79,21 @@ function createServer(): McpServer {
     "i1n_search",
     "Search existing translations by key name, namespace, or source value",
     {
-      query: z.string().describe("Search query — matches against key, namespace, and source locale value"),
+      query: z.string().min(1).max(500).describe("Search query — matches against key, namespace, and source locale value"),
     },
     async (params) => handleSearch(params),
+  );
+
+  server.tool(
+    "i1n_setup_bridge",
+    "Detect any i18n library (i18next, vue-i18n, next-intl, react-intl, etc.) and configure i1n bridge mode in this project — end-to-end, with no terminal needed. Use when the user asks to 'set up / configure the bridge', 'wire up i1n with my existing i18n library', or 'install i1n on top of <library>'.\n\nIf `i1n.config.json` doesn't exist yet, pass `apiKey` (and optionally `projectId`) and the tool runs init non-interactively (validate, pick project, write config) before wiring the bridge. If `apiKey` is missing, the tool returns status `needs_api_key` so you can ask the user for it. If multiple projects exist, it returns status `multiple_projects` with the list — re-call with the chosen `projectId`.\n\nPass `write=true` to actually write the bridge helper file (do this whenever the user asks to *configure*/*install*; only leave it false if they explicitly asked to *analyze* or *preview*). For libraries outside the known list, the tool still emits a best-effort snippet flagged for verification.",
+    {
+      write: z.boolean().optional().describe("If true, writes the bridge helper file to disk (use this when the user asks to *configure*/install). Default: false."),
+      bridgePath: z.string().min(1).max(500).optional().describe("Path for the bridge helper file. Default: 'src/i18n/i1n-bridge.ts' (or '.js' if no TypeScript detected)."),
+      apiKey: z.string().min(1).max(200).optional().describe("i1n API key (format: i1n_<32 hex>). Required only when i1n.config.json doesn't exist yet — the tool will run init non-interactively. Ask the user for it the first time; do not invent one."),
+      projectId: z.string().min(1).max(64).optional().describe("UUID of the i1n project to use during init. Only needed when the API key's organization has more than one project."),
+    },
+    async (params) => handleSetupBridge(params),
   );
 
   // --- Resources ---

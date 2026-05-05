@@ -50,17 +50,49 @@ function getClient() {
   return _client;
 }
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000;
+const MIN_REQUEST_TIMEOUT_MS = 1_000;
+const MAX_REQUEST_TIMEOUT_MS = 600_000;
+
+function getRequestTimeoutMs(): number {
+  const raw = process.env.I1N_REQUEST_TIMEOUT_MS;
+  if (!raw) return DEFAULT_REQUEST_TIMEOUT_MS;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < MIN_REQUEST_TIMEOUT_MS) return DEFAULT_REQUEST_TIMEOUT_MS;
+  return Math.min(parsed, MAX_REQUEST_TIMEOUT_MS);
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Request timeout after ${ms}ms (${label})`)),
+      ms,
+    );
+  });
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export async function callCliSync<T extends Action>(
   action: T,
   params: Record<string, unknown>,
   apiKey: string,
 ): Promise<ActionResponseMap[T]> {
   const client = getClient();
+  const timeoutMs = getRequestTimeoutMs();
 
-  const { data, error } = await client.functions.invoke("cli-sync", {
-    body: { action, params },
-    headers: { "x-i1n-key": apiKey },
-  });
+  const { data, error } = await withTimeout(
+    client.functions.invoke("cli-sync", {
+      body: { action, params },
+      headers: { "x-i1n-key": apiKey },
+    }),
+    timeoutMs,
+    action,
+  );
 
   if (error) {
     throw new Error(error.message ?? `Request failed: ${action}`);

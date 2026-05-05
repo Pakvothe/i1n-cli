@@ -30,4 +30,10 @@ program.addCommand(addLanguageCommand);
 program.addCommand(projectLimitsCommand);
 program.addCommand(mcpCommand);
 
+program.on("command:*", (operands) => {
+  console.error(`error: unknown command '${operands[0]}'`);
+  program.outputHelp();
+  process.exit(1);
+});
+
 program.parse();
