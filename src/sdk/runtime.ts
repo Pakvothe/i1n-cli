@@ -118,7 +118,11 @@ export function registerI1n(engine: EngineFn | null): void {
  * Translate a key with optional variable interpolation.
  */
 export function t<K extends I1nKey>(
-  key: K,
+  key: string extends K
+    ? string
+    : K extends keyof I1nKeys
+      ? K
+      : keyof I1nKeys,
   ...args: K extends keyof I1nKeys
     ? I1nKeys[K] extends Record<string, never>
       ? [options?: { defaultValue?: string }]

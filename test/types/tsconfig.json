@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "i1n": ["../../src/sdk/runtime.ts"]
+    },
+    "types": ["node"]
+  },
+  "include": ["./**/*.ts", "./**/*.d.ts"]
+}

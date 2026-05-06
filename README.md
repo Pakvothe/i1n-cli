@@ -355,7 +355,17 @@ t("auth.login.title");
 
 // ERROR: Argument of type '"auth.login.titlse"' is not assignable...
 t("auth.login.titlse");
+
+// Dynamic strings still pass through — useful for `t(item.name)`,
+// runtime-built keys, etc.
+declare const dynamicKey: string;
+t(dynamicKey);
 ```
+
+> Strict literal checking landed in `1.3.0`: passing a hard-coded string that
+> isn't in `I1nKeys` is now a TypeScript error (no more silent
+> `[i1n] Missing translation` warnings at runtime). Variables typed as
+> `string` keep working without casts.
 
 ---
 
