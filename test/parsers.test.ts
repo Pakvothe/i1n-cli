@@ -553,6 +553,68 @@ describe("apple-strings parser", () => {
     expect(findWording(wordings, "backslash")?.value_json.en).toBe("path\\dir");
   });
 
+  it("preserves literal backslash-n text (does not collapse \\\\n to newline)", () => {
+    // On disk: "type \\n to break"  (4 chars escaped as: \, \, n, space)
+    // Expected parse: "type \n to break"  (literal backslash + n)
+    writeFile(
+      path.join(dir, "en.lproj/Localizable.strings"),
+      `"hint" = "type \\\\n to break";\n`,
+    );
+
+    const { wordings } = appleStringsParser.read(dir, "en");
+    expect(findWording(wordings, "hint")?.value_json.en).toBe(
+      "type \\n to break",
+    );
+  });
+
+  it("roundtrips a value containing literal backslash-n text", () => {
+    const original: Wording[] = [
+      {
+        key: "code_hint",
+        namespace: "localizable",
+        // Literal text the user wants to display: \n (backslash + n, 2 chars)
+        value_json: { en: "press \\n" },
+      },
+    ];
+
+    appleStringsParser.write(dir, original, LANGS);
+    const { wordings } = appleStringsParser.read(dir, "en");
+    expect(findWording(wordings, "code_hint")?.value_json.en).toBe("press \\n");
+  });
+
+  it("decodes UTF-16BE files correctly (FE FF BOM)", () => {
+    // Build UTF-16BE bytes for: "key" = "Hi";\n
+    const text = `"key" = "Hi";\n`;
+    const bom = Buffer.from([0xfe, 0xff]);
+    const buf = Buffer.alloc(text.length * 2);
+    for (let i = 0; i < text.length; i++) {
+      buf.writeUInt16BE(text.charCodeAt(i), i * 2);
+    }
+    const filePath = path.join(dir, "en.lproj/Localizable.strings");
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, Buffer.concat([bom, buf]));
+
+    const { wordings, warnings } = appleStringsParser.read(dir, "en");
+    expect(warnings).toHaveLength(0);
+    expect(findWording(wordings, "key")?.value_json.en).toBe("Hi");
+  });
+
+  it("decodes UTF-16LE files correctly (FF FE BOM)", () => {
+    const text = `"key" = "Hi";\n`;
+    const bom = Buffer.from([0xff, 0xfe]);
+    const buf = Buffer.alloc(text.length * 2);
+    for (let i = 0; i < text.length; i++) {
+      buf.writeUInt16LE(text.charCodeAt(i), i * 2);
+    }
+    const filePath = path.join(dir, "en.lproj/Localizable.strings");
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, Buffer.concat([bom, buf]));
+
+    const { wordings, warnings } = appleStringsParser.read(dir, "en");
+    expect(warnings).toHaveLength(0);
+    expect(findWording(wordings, "key")?.value_json.en).toBe("Hi");
+  });
+
   it("warns on non-empty file with no entries", () => {
     writeFile(
       path.join(dir, "en.lproj/Localizable.strings"),

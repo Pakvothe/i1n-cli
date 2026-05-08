@@ -237,7 +237,7 @@ describe("mcp setup-bridge", () => {
     expect(data.status).toBe("no_library");
   });
 
-  it("reports overwrote=true when an existing bridge file is replaced", async () => {
+  it("refuses to overwrite an existing bridge file by default", async () => {
     writeFile(path.join(dir, "package.json"), JSON.stringify({
       dependencies: { i18next: "^23.0.0" },
     }));
@@ -247,8 +247,49 @@ describe("mcp setup-bridge", () => {
     const result = await handleSetupBridge({ cwd: dir, write: true });
     const data = payload(result);
 
+    expect(data.status).toBe("bridge_overwrite_refused");
+    expect(data.existingPath).toBe("src/i18n/i1n-bridge.js");
+    expect(data.hint).toContain("overwrite: true");
+
+    const onDisk = fs.readFileSync(path.join(dir, "src/i18n/i1n-bridge.js"), "utf-8");
+    expect(onDisk).toBe("// previous content");
+  });
+
+  it("refuses to overwrite an arbitrary source file passed as bridgePath", async () => {
+    // Prompt-injection scenario: attacker asks the tool to overwrite an unrelated source file.
+    writeFile(path.join(dir, "package.json"), JSON.stringify({
+      dependencies: { i18next: "^23.0.0" },
+    }));
+    writeFile(path.join(dir, "i1n.config.json"), JSON.stringify(validConfig("i18next")));
+    writeFile(path.join(dir, "src/index.ts"), "export const critical = 1;");
+
+    const result = await handleSetupBridge({
+      cwd: dir,
+      write: true,
+      bridgePath: "src/index.ts",
+    });
+    const data = payload(result);
+
+    expect(data.status).toBe("bridge_overwrite_refused");
+    const onDisk = fs.readFileSync(path.join(dir, "src/index.ts"), "utf-8");
+    expect(onDisk).toBe("export const critical = 1;");
+  });
+
+  it("overwrites when overwrite=true is explicitly passed", async () => {
+    writeFile(path.join(dir, "package.json"), JSON.stringify({
+      dependencies: { i18next: "^23.0.0" },
+    }));
+    writeFile(path.join(dir, "i1n.config.json"), JSON.stringify(validConfig("i18next")));
+    writeFile(path.join(dir, "src/i18n/i1n-bridge.js"), "// previous content");
+
+    const result = await handleSetupBridge({ cwd: dir, write: true, overwrite: true });
+    const data = payload(result);
+
     expect(data.bridge.written).toBe(true);
     expect(data.bridge.overwrote).toBe(true);
+
+    const onDisk = fs.readFileSync(path.join(dir, "src/i18n/i1n-bridge.js"), "utf-8");
+    expect(onDisk).toContain("setupI1nBridge");
   });
 
   it("flags mismatch when configured framework differs from detected", async () => {

@@ -18,6 +18,7 @@ interface SetupBridgeParams {
   cwd?: string;
   apiKey?: string;
   projectId?: string;
+  overwrite?: boolean;
 }
 
 interface BridgeSnippet {
@@ -235,11 +236,24 @@ function resolveBridgeTarget(cwd: string, requestedPath: string | undefined): Re
   return { ok: true, absolutePath, relativePath: candidate, ext: ext === ".ts" ? "ts" : "js" };
 }
 
-function writeBridgeArtifact(target: ResolvedBridgeTarget, snippet: BridgeSnippet, framework: string, inferred: boolean): { written: true; overwrote: boolean } {
-  const overwrote = fs.existsSync(target.absolutePath);
+type WriteBridgeResult =
+  | { written: true; overwrote: boolean }
+  | { written: false; refused: true; existingPath: string };
+
+function writeBridgeArtifact(
+  target: ResolvedBridgeTarget,
+  snippet: BridgeSnippet,
+  framework: string,
+  inferred: boolean,
+  overwrite: boolean,
+): WriteBridgeResult {
+  const exists = fs.existsSync(target.absolutePath);
+  if (exists && !overwrite) {
+    return { written: false, refused: true, existingPath: target.relativePath };
+  }
   fs.mkdirSync(path.dirname(target.absolutePath), { recursive: true });
   fs.writeFileSync(target.absolutePath, buildBridgeFile(snippet, target.ext, framework, inferred), "utf-8");
-  return { written: true, overwrote };
+  return { written: true, overwrote: exists };
 }
 
 interface InitOutcome {
@@ -459,8 +473,16 @@ export async function handleSetupBridge(params: SetupBridgeParams = {}) {
     let written = false;
     let overwrote = false;
     if (writeFile) {
-      const result = writeBridgeArtifact(target, snippet, unknownDep, true);
-      written = result.written;
+      const result = writeBridgeArtifact(target, snippet, unknownDep, true, params.overwrite === true);
+      if (!result.written) {
+        return text(JSON.stringify({
+          status: "bridge_overwrite_refused",
+          message: `Bridge file already exists at '${result.existingPath}'. Refusing to overwrite by default.`,
+          existingPath: result.existingPath,
+          hint: "Pass overwrite: true to replace the existing file, or pass a different bridgePath.",
+        }, null, 2));
+      }
+      written = true;
       overwrote = result.overwrote;
     }
     return text(JSON.stringify({
@@ -550,8 +572,16 @@ export async function handleSetupBridge(params: SetupBridgeParams = {}) {
   let written = false;
   let overwrote = false;
   if (writeFile) {
-    const result = writeBridgeArtifact(target, snippet, effectiveFramework, inferred);
-    written = result.written;
+    const result = writeBridgeArtifact(target, snippet, effectiveFramework, inferred, params.overwrite === true);
+    if (!result.written) {
+      return text(JSON.stringify({
+        status: "bridge_overwrite_refused",
+        message: `Bridge file already exists at '${result.existingPath}'. Refusing to overwrite by default.`,
+        existingPath: result.existingPath,
+        hint: "Pass overwrite: true to replace the existing file, or pass a different bridgePath.",
+      }, null, 2));
+    }
+    written = true;
     overwrote = result.overwrote;
   }
 

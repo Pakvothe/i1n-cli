@@ -92,6 +92,7 @@ function createServer(): McpServer {
       bridgePath: z.string().min(1).max(500).optional().describe("Path for the bridge helper file. Default: 'src/i18n/i1n-bridge.ts' (or '.js' if no TypeScript detected)."),
       apiKey: z.string().min(1).max(200).optional().describe("i1n API key (format: i1n_<32 hex>). Required only when i1n.config.json doesn't exist yet — the tool will run init non-interactively. Ask the user for it the first time; do not invent one."),
       projectId: z.string().min(1).max(64).optional().describe("UUID of the i1n project to use during init. Only needed when the API key's organization has more than one project."),
+      overwrite: z.boolean().optional().describe("If true, allow overwriting an existing file at bridgePath. Default: false (refuses to overwrite to avoid clobbering source files)."),
     },
     async (params) => handleSetupBridge(params),
   );

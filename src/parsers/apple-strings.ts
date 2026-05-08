@@ -39,10 +39,14 @@ export const appleStringsParser: I1nParser = {
         continue;
       }
 
-      const content =
-        raw[0] === 0xff || raw[0] === 0xfe
-          ? raw.toString("utf16le").replace(/^\uFEFF/, "")
-          : raw.toString("utf-8").replace(/^\uFEFF/, "");
+      let content: string;
+      if (raw[0] === 0xff && raw[1] === 0xfe) {
+        content = raw.toString("utf16le").replace(/^\uFEFF/, "");
+      } else if (raw[0] === 0xfe && raw[1] === 0xff) {
+        content = new TextDecoder("utf-16be").decode(raw).replace(/^\uFEFF/, "");
+      } else {
+        content = raw.toString("utf-8").replace(/^\uFEFF/, "");
+      }
 
       const commentRegex = new RegExp(COMMENT_REGEX.source, "g");
       let commentMatch: RegExpExecArray | null;
@@ -121,5 +125,10 @@ function escapeStrings(text: string): string {
 }
 
 function unescapeStrings(text: string): string {
-  return text.replace(/\\\\/g, "\\").replace(/\\n/g, "\n").replace(/\\"/g, '"');
+  return text.replace(/\\(.)/g, (_, c) => {
+    if (c === "n") return "\n";
+    if (c === "\\") return "\\";
+    if (c === '"') return '"';
+    return c;
+  });
 }

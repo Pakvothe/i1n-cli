@@ -2,7 +2,7 @@
 
 **Your app in every language. One command.**
 
-[![npm](https://img.shields.io/npm/v/i1n)](https://www.npmjs.com/package/i1n) [![license](https://img.shields.io/npm/l/i1n)](https://github.com/Pakvothe/i1n-cli/blob/main/LICENSE) [![MCP](https://img.shields.io/badge/MCP-7_tools-amber)](https://i1n.ai)
+[![npm](https://img.shields.io/npm/v/i1n)](https://www.npmjs.com/package/i1n) [![license](https://img.shields.io/npm/l/i1n)](https://github.com/Pakvothe/i1n-cli/blob/main/LICENSE) [![MCP](https://img.shields.io/badge/MCP-8_tools-amber)](https://i1n.ai) [![Listed on MCP Servers](https://img.shields.io/badge/mcpservers.org-listed-blue)](https://mcpservers.org/servers/pakvothe/i1n-cli) [![Security: DeepSec](https://img.shields.io/badge/security-DeepSec_audited-success)](https://github.com/vercel-labs/deepsec)
 
 ![demo](./demo.gif)
 
@@ -123,7 +123,7 @@ claude mcp add i1n -- npx i1n mcp
 }
 ```
 
-**7 tools available:**
+**8 tools available:**
 
 | Tool | Description |
 | ---- | ----------- |
@@ -134,6 +134,7 @@ claude mcp add i1n -- npx i1n mcp
 | `i1n_add_language` | Add new languages with optional auto-translation |
 | `i1n_extract_and_translate` | Extract strings from code, push as keys, translate to all languages |
 | `i1n_search` | Search existing translation keys by name or value |
+| `i1n_setup_bridge` | Detect your i18n library (i18next, vue-i18n, next-intl, etc.) and wire up i1n bridge mode end-to-end |
 
 **The killer workflow** — tell your AI agent "internationalize this component":
 

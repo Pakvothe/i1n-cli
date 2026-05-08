@@ -8,3 +8,6 @@ dist
 i1n.config.json
 .i1n-push-state.json
 CLAUDE.md
+
+# tooling
+.deepsec/
