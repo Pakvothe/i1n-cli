@@ -77,7 +77,16 @@ export function generateTypeDefinitions(
     "  interface I1nKeys {",
   ];
 
-  // Track which base keys we've already emitted (to avoid duplicates)
+  // Track which keys we've already emitted. Two distinct sources of
+  // collision are handled here:
+  //   1. Plural base + regular literal — e.g. a wording with fullKey
+  //      `common.hello` coexisting with `common.hello_one`. The plural
+  //      variant carries strictly more type info (`count: number` and any
+  //      additional vars), so we let it win and skip the literal twin.
+  //   2. Two rows that canonicalize to the same fullKey — e.g.
+  //      `(common, "common.hello")` + `(common, "hello")`. Dashboard
+  //      bulk-import produced the prefixed-key form in the past. Emitting
+  //      both produces a TS duplicate-property error.
   const emittedKeys = new Set<string>();
 
   for (const wording of sorted) {
@@ -98,6 +107,23 @@ export function generateTypeDefinitions(
       }
       continue;
     }
+
+    // A literal wording whose fullKey is also the base of some plural
+    // group: skip it. The plural branch above will emit the canonical
+    // entry with `count: number`. Without this guard, the literal would
+    // mark the base as emitted with `Record<string, never>` and the
+    // plural variant would be silently dropped.
+    if (pluralGroups.has(fullKey)) {
+      continue;
+    }
+
+    if (emittedKeys.has(fullKey)) {
+      // Same fullKey already emitted via another wording row. The downstream
+      // file writer also collapses these into one path; the type would just
+      // be a duplicate so we skip it.
+      continue;
+    }
+    emittedKeys.add(fullKey);
 
     const sourceText = wording.value_json[sourceLocale] ?? "";
     const vars = extractVariables(sourceText);

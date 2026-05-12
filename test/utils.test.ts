@@ -243,6 +243,39 @@ describe("generateTypeDefinitions", () => {
     expect(output).toContain('    "auth.login": Record<string, never>;');
     expect(output).not.toContain('"auth.auth.login"');
   });
+
+  it("dedupes two wordings that canonicalize to the same fullKey", () => {
+    // Repro of the dashboard-bulk-import vs CLI-push collision:
+    //   row A: (common, "common.hello")  ← stored by bulk import (pre-fix)
+    //   row B: (common, "hello")         ← stored by `i1n push`
+    // Both resolve to fullKey "common.hello" in the type generator.
+    const wordings: Wording[] = [
+      { key: "common.hello", namespace: "common", value_json: { en: "Hi" } },
+      { key: "hello", namespace: "common", value_json: { en: "Hi" } },
+    ];
+
+    const output = generateTypeDefinitions(wordings, "en");
+    const occurrences = output.split('"common.hello"').length - 1;
+    expect(occurrences).toBe(1);
+  });
+
+  it("lets the plural variant win when a regular literal shares its base", () => {
+    // If a project has both a regular `common.hello` and a plural family
+    // `common.hello_one`/`common.hello_other`, the plural family carries
+    // strictly more type information (`count: number`). The literal must
+    // not pre-empt the base with a `Record<string, never>` type, which
+    // would silently drop the plural typing and break consumers calling
+    // `t('common.hello', { count: 1 })`.
+    const wordings: Wording[] = [
+      { key: "hello", namespace: "common", value_json: { en: "Hello" } },
+      { key: "hello_one", namespace: "common", value_json: { en: "{count} item" } },
+      { key: "hello_other", namespace: "common", value_json: { en: "{count} items" } },
+    ];
+
+    const output = generateTypeDefinitions(wordings, "en");
+    expect(output).toContain('"common.hello": { count: number };');
+    expect(output).not.toContain('"common.hello": Record<string, never>;');
+  });
 });
 
 describe("project config", () => {
