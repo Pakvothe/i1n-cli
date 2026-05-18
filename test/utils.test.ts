@@ -15,6 +15,9 @@ import {
   readPushState,
   writePushState,
   getChangedWordings,
+  diffThreeWay,
+  buildNextState,
+  type PushStateV2,
 } from "../src/shared/push-state.js";
 import {
   normalizeLocaleCode,
@@ -401,86 +404,50 @@ describe("ensureGitignore", () => {
   });
 });
 
-describe("push state", () => {
+describe("push state (v2)", () => {
   let dir: string;
 
-  const wordings: Wording[] = [
-    { key: "title", namespace: "common", value_json: { en_us: "Hello" } },
-    {
-      key: "greeting",
-      namespace: "common",
-      value_json: { en_us: "Hi {name}" },
-    },
-    { key: "save", namespace: "buttons", value_json: { en_us: "Save" } },
-  ];
+  const emptyState: PushStateV2 = { version: 2, wordings: {} };
+
+  function stateOf(
+    entries: Record<string, { values: Record<string, string>; updated_at?: string }>,
+  ): PushStateV2 {
+    return { version: 2, wordings: entries };
+  }
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "i1n-push-"));
   });
   afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-  it("returns empty state when no file exists", () => {
+  it("returns empty v2 state when no file exists", () => {
     const state = readPushState(dir);
-    expect(state).toEqual({});
+    expect(state).toEqual(emptyState);
   });
 
-  it("writes and reads state", () => {
-    writePushState(wordings, dir);
+  it("round-trips a v2 state file", () => {
+    const written: PushStateV2 = stateOf({
+      "common:title": {
+        values: { en_us: "Hello" },
+        updated_at: "2026-05-12T10:00:00Z",
+      },
+    });
+    writePushState(written, dir);
+    const read = readPushState(dir);
+    expect(read).toEqual(written);
+  });
+
+  it("discards a v1 state file (per-wording hash format)", () => {
+    // Simulate v1: top-level Record<string, string> of MD5 hashes.
+    fs.writeFileSync(
+      path.join(dir, ".i1n-push-state.json"),
+      JSON.stringify({
+        "common:title": "5d41402abc4b2a76b9719d911017c592",
+      }),
+      "utf-8",
+    );
     const state = readPushState(dir);
-    expect(Object.keys(state).length).toBe(3);
-    expect(state["common:title"]).toBeDefined();
-    expect(state["common:greeting"]).toBeDefined();
-    expect(state["buttons:save"]).toBeDefined();
-  });
-
-  it("returns all wordings as changed on first push (no state file)", () => {
-    const { changed, unchanged } = getChangedWordings(wordings, dir);
-    expect(changed.length).toBe(3);
-    expect(unchanged).toBe(0);
-  });
-
-  it("returns no changes when nothing changed", () => {
-    writePushState(wordings, dir);
-    const { changed, unchanged } = getChangedWordings(wordings, dir);
-    expect(changed.length).toBe(0);
-    expect(unchanged).toBe(3);
-  });
-
-  it("detects changed wordings", () => {
-    writePushState(wordings, dir);
-
-    const modified = [
-      {
-        key: "title",
-        namespace: "common",
-        value_json: { en_us: "Hello World" },
-      },
-      {
-        key: "greeting",
-        namespace: "common",
-        value_json: { en_us: "Hi {name}" },
-      },
-      { key: "save", namespace: "buttons", value_json: { en_us: "Save" } },
-    ];
-
-    const { changed, unchanged } = getChangedWordings(modified, dir);
-    expect(changed.length).toBe(1);
-    expect(changed[0].key).toBe("title");
-    expect(unchanged).toBe(2);
-  });
-
-  it("detects new wordings as changed", () => {
-    writePushState(wordings, dir);
-
-    const withNew = [
-      ...wordings,
-      { key: "cancel", namespace: "buttons", value_json: { en_us: "Cancel" } },
-    ];
-
-    const { changed, unchanged } = getChangedWordings(withNew, dir);
-    expect(changed.length).toBe(1);
-    expect(changed[0].key).toBe("cancel");
-    expect(unchanged).toBe(3);
+    expect(state).toEqual(emptyState);
   });
 
   it("handles corrupt state file gracefully", () => {
@@ -489,8 +456,230 @@ describe("push state", () => {
       "not json",
       "utf-8",
     );
-    const state = readPushState(dir);
-    expect(state).toEqual({});
+    expect(readPushState(dir)).toEqual(emptyState);
+  });
+
+  it("getChangedWordings (deprecated) returns all wordings as changed", () => {
+    const wordings: Wording[] = [
+      { key: "title", namespace: "common", value_json: { en_us: "Hi" } },
+    ];
+    const { changed, unchanged } = getChangedWordings(wordings, dir);
+    expect(changed.length).toBe(1);
+    expect(unchanged).toBe(0);
+  });
+});
+
+describe("diffThreeWay", () => {
+  function L(values: Record<string, string>): Wording {
+    return { key: "k", namespace: "ns", value_json: values };
+  }
+  function S(values: Record<string, string>, updated_at = "2026-05-12T10:00:00Z"): Wording {
+    return { key: "k", namespace: "ns", value_json: values, updated_at };
+  }
+  function P(values: Record<string, string>, updated_at = "2026-05-12T10:00:00Z"): PushStateV2 {
+    return {
+      version: 2,
+      wordings: { "ns:k": { values, updated_at } },
+    };
+  }
+  const emptyP: PushStateV2 = { version: 2, wordings: {} };
+
+  // (1) Pure local edit: en="new" vs en="old"=base
+  it("classifies pure local edit as toPush", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "new" })],
+      [S({ en_us: "old" })],
+      P({ en_us: "old" }),
+    );
+    expect(diff.toPush.length).toBe(1);
+    expect(diff.toPush[0].value).toBe("new");
+    expect(diff.conflicts.length).toBe(0);
+    expect(diff.serverOnly.length).toBe(0);
+  });
+
+  // (2) Pure server edit (THE BUG): user didn't touch, server moved → don't push
+  it("classifies pure server edit as serverOnly (bug repro)", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "old" })],
+      [S({ en_us: "new" })],
+      P({ en_us: "old" }),
+    );
+    expect(diff.toPush.length).toBe(0);
+    expect(diff.serverOnly.length).toBe(1);
+    expect(diff.serverOnly[0].value).toBe("new");
+  });
+
+  // (3) Both equal
+  it("classifies all-equal as unchanged", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "x" })],
+      [S({ en_us: "x" })],
+      P({ en_us: "x" }),
+    );
+    expect(diff.unchanged).toBe(1);
+    expect(diff.toPush.length).toBe(0);
+    expect(diff.serverOnly.length).toBe(0);
+    expect(diff.conflicts.length).toBe(0);
+  });
+
+  // (4) Real conflict
+  it("classifies divergent local+server as conflict", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "A" })],
+      [S({ en_us: "B" })],
+      P({ en_us: "X" }),
+    );
+    expect(diff.conflicts.length).toBe(1);
+    expect(diff.conflicts[0].base).toBe("X");
+    expect(diff.conflicts[0].local).toBe("A");
+    expect(diff.conflicts[0].server).toBe("B");
+  });
+
+  // (5) Mixed langs (local en, server es) — both should bucket correctly
+  it("handles per-language split: local en, server es", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "new", es_ar: "old" })],
+      [S({ en_us: "old", es_ar: "new" })],
+      P({ en_us: "old", es_ar: "old" }),
+    );
+    const langs = diff.toPush.map((p) => p.lang);
+    expect(langs).toContain("en_us");
+    expect(diff.toPush.find((p) => p.lang === "en_us")?.value).toBe("new");
+    const soLangs = diff.serverOnly.map((p) => p.lang);
+    expect(soLangs).toContain("es_ar");
+    expect(diff.serverOnly.find((p) => p.lang === "es_ar")?.value).toBe("new");
+  });
+
+  // (6) New key (local only, server absent, P absent)
+  it("classifies brand-new local key as toPush", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "fresh" })],
+      [],
+      emptyP,
+    );
+    expect(diff.toPush.length).toBe(1);
+    expect(diff.toPush[0].value).toBe("fresh");
+  });
+
+  // (7) New lang locally — push the new lang only
+  it("classifies new local lang as toPush", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "x", fr_fr: "nouveau" })],
+      [S({ en_us: "x" })],
+      P({ en_us: "x" }),
+    );
+    expect(diff.toPush.length).toBe(1);
+    expect(diff.toPush[0].lang).toBe("fr_fr");
+  });
+
+  // (8) New lang on server — auto-pull
+  it("classifies new server lang as serverOnly", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "x" })],
+      [S({ en_us: "x", fr_fr: "added" })],
+      P({ en_us: "x" }),
+    );
+    expect(diff.serverOnly.length).toBe(1);
+    expect(diff.serverOnly[0].lang).toBe("fr_fr");
+  });
+
+  // (9) Lang deleted locally — warn, no propagation
+  it("classifies missing local lang (was in P+S) as localDeletion (warn)", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "x" })],
+      [S({ en_us: "x", es_ar: "y" })],
+      P({ en_us: "x", es_ar: "y" }),
+    );
+    expect(diff.localDeletions.length).toBe(1);
+    expect(diff.localDeletions[0].lang).toBe("es_ar");
+    expect(diff.serverOnly.length).toBe(0);
+    expect(diff.toPush.length).toBe(0);
+  });
+
+  // (10) Fresh checkout, everything matches server → unchanged
+  it("fresh checkout (empty P) with matching local/server is all unchanged", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "x" })],
+      [S({ en_us: "x" })],
+      emptyP,
+    );
+    expect(diff.stateWasEmpty).toBe(true);
+    expect(diff.unchanged).toBe(1);
+    expect(diff.toPush.length).toBe(0);
+    expect(diff.conflicts.length).toBe(0);
+  });
+
+  // (11) Fresh checkout, divergence → conflict (since P:=S synthesized)
+  it("fresh checkout with divergence produces a conflict", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "X" })],
+      [S({ en_us: "Y" })],
+      emptyP,
+    );
+    expect(diff.conflicts.length).toBe(1);
+    expect(diff.conflicts[0].local).toBe("X");
+    expect(diff.conflicts[0].server).toBe("Y");
+  });
+
+  // (12) Fresh checkout, new local key → push as new
+  it("fresh checkout with brand-new local key pushes it cleanly", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "fresh" })],
+      [],
+      emptyP,
+    );
+    expect(diff.toPush.length).toBe(1);
+    expect(diff.conflicts.length).toBe(0);
+  });
+
+  // Local lang absent when server changed it — still serverOnly bring-in (not a delete)
+  it("local lang absent + server changed lang since baseline → serverOnly bring-in", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "x" })],
+      [S({ en_us: "x", es_ar: "new" })],
+      P({ en_us: "x", es_ar: "old" }),
+    );
+    expect(diff.serverOnly.length).toBe(1);
+    expect(diff.serverOnly[0].lang).toBe("es_ar");
+    expect(diff.serverOnly[0].value).toBe("new");
+    expect(diff.localDeletions.length).toBe(0);
+  });
+});
+
+describe("buildNextState", () => {
+  it("captures server snapshot + overlays just-pushed values", () => {
+    const serverWordings: Wording[] = [
+      {
+        key: "title",
+        namespace: "common",
+        value_json: { en_us: "Hello", es_ar: "Hola" },
+        updated_at: "2026-05-12T09:00:00Z",
+      },
+    ];
+    const pushed = { "common:title": { en_us: "Hi" } };
+    const next = buildNextState(serverWordings, pushed);
+    expect(next.version).toBe(2);
+    // Pushed lang reflects the client value; untouched lang reflects server.
+    expect(next.wordings["common:title"].values).toEqual({
+      en_us: "Hi",
+      es_ar: "Hola",
+    });
+    expect(next.wordings["common:title"].updated_at).toBe(
+      "2026-05-12T09:00:00Z",
+    );
+  });
+
+  it("handles empty pushed map (post-pull baseline only)", () => {
+    const serverWordings: Wording[] = [
+      {
+        key: "k",
+        namespace: "ns",
+        value_json: { en_us: "x" },
+        updated_at: "2026-05-12T08:00:00Z",
+      },
+    ];
+    const next = buildNextState(serverWordings, {});
+    expect(next.wordings["ns:k"].values).toEqual({ en_us: "x" });
   });
 });
 
