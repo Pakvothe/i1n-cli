@@ -1,21 +1,152 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { Command } from "commander";
 import * as p from "@clack/prompts";
 import { readProjectConfig } from "../../shared/config.js";
 import { callCliSync } from "../../shared/supabase.js";
 import { getParser } from "../../parsers/index.js";
-import { getChangedWordings, writePushState } from "../../shared/push-state.js";
+import {
+  buildNextState,
+  diffThreeWay,
+  readPushState,
+  writePushState,
+  type Conflict,
+  type DiffResult,
+  type PushStateEntry,
+  type PushStateV2,
+  type ServerOnlyChange,
+} from "../../shared/push-state.js";
 import { normalizeWordingLanguages } from "../../shared/languages.js";
 import { executePull } from "./pull.js";
 import type {
   EstimateTranslateResponse,
   ProjectLimitsResponse,
+  PullResponse,
+  PushConflict,
+  PushResponse,
   TranslationProgressResponse,
+  Wording,
 } from "../../shared/types.js";
 
 const MAX_WAIT_MS = 3 * 60 * 1000; // 3 minutes
 const MAX_CONSECUTIVE_ERRORS = 10;
+
+// ── Helpers ─────────────────────────────────────────────────────────
+
+function truncate(s: string, max = 60): string {
+  if (s.length <= max) return s;
+  return `${s.slice(0, max - 1)}…`;
+}
+
+function renderConflicts(conflicts: Conflict[]): void {
+  const limit = Math.min(conflicts.length, 10);
+  for (let i = 0; i < limit; i++) {
+    const c = conflicts[i];
+    p.log.info(`  ${c.namespace}.${c.key} [${c.lang}]`);
+    if (c.base !== undefined) {
+      p.log.info(`    base   : ${truncate(c.base)}`);
+    }
+    p.log.info(`    local  : ${truncate(c.local)}`);
+    p.log.info(`    server : ${truncate(c.server)}`);
+  }
+  if (conflicts.length > limit) {
+    p.log.info(`  ...and ${conflicts.length - limit} more`);
+  }
+}
+
+type InteractiveResolution =
+  | "abort"
+  | { localWins: Conflict[]; serverWins: Conflict[] };
+
+async function resolveConflictsInteractive(
+  conflicts: Conflict[],
+): Promise<InteractiveResolution> {
+  const localWins: Conflict[] = [];
+  const serverWins: Conflict[] = [];
+
+  for (let i = 0; i < conflicts.length; i++) {
+    const c = conflicts[i];
+    const heading = `Conflict ${i + 1}/${conflicts.length}: ${c.namespace}.${c.key} [${c.lang}]`;
+    const choice = await p.select<string>({
+      message: heading,
+      options: [
+        { value: "local", label: `Keep local: "${truncate(c.local, 80)}"` },
+        { value: "server", label: `Accept server: "${truncate(c.server, 80)}"` },
+        { value: "abort", label: "Abort push" },
+      ],
+    });
+    if (p.isCancel(choice) || choice === "abort") {
+      return "abort";
+    }
+    if (choice === "local") localWins.push(c);
+    else if (choice === "server") serverWins.push(c);
+  }
+
+  return { localWins, serverWins };
+}
+
+/**
+ * Write the server's value for the (key, lang) tuples in `serverOnly`
+ * back to the local files, leaving everything else intact.
+ *
+ * We mutate the in-memory `localWordings` then ask the parser to write
+ * only the (namespace, lang) files that actually changed. The parser's
+ * write semantics overwrite each (lang, namespace).json file in full
+ * with the keys present in `localWordings` for that namespace — but
+ * since `localWordings` already represents what was on disk plus our
+ * server overlay, the result preserves user-only keys and unchanged
+ * langs.
+ */
+function applyServerOnlyToLocalFiles(
+  serverOnly: ServerOnlyChange[],
+  localWordings: Wording[],
+  localesDir: string,
+  parser: ReturnType<typeof getParser>,
+): void {
+  if (serverOnly.length === 0) return;
+
+  // Index local for O(1) mutation
+  const localByNsKey = new Map<string, Wording>();
+  for (const w of localWordings) {
+    localByNsKey.set(`${w.namespace}:${w.key}`, w);
+  }
+
+  const affectedNs = new Set<string>();
+  const affectedLangs = new Set<string>();
+
+  for (const change of serverOnly) {
+    affectedNs.add(change.namespace);
+    affectedLangs.add(change.lang);
+
+    const k = `${change.namespace}:${change.key}`;
+    let w = localByNsKey.get(k);
+    if (!w) {
+      // Server has a key we don't have locally — add it to the local
+      // set so it gets written.
+      w = {
+        namespace: change.namespace,
+        key: change.key,
+        value_json: {},
+      };
+      localByNsKey.set(k, w);
+      localWordings.push(w);
+    }
+    w.value_json[change.lang] = change.value;
+  }
+
+  // Write only the (namespace, lang) tuples we actually touched.
+  const wordingsForWrite = localWordings.filter((w) =>
+    affectedNs.has(w.namespace),
+  );
+  const languagesForWrite = Array.from(affectedLangs).map((code) => ({
+    code,
+    name: code,
+  }));
+
+  parser.write(localesDir, wordingsForWrite, languagesForWrite);
+}
 
 /**
  * Polls translation progress until done. Updates spinner message with % and ETA.
@@ -96,6 +227,14 @@ async function waitForTranslation(
 export const pushCommand = new Command("push")
   .description("Push local translations to i1n")
   .option("--translate [langs]", "Trigger smart translate after push")
+  .option(
+    "--strategy <mode>",
+    "Conflict resolution: interactive | ours | theirs | abort",
+  )
+  .option(
+    "--force",
+    "Overwrite server with local for any conflict (shorthand for --strategy ours)",
+  )
   .action(async (opts) => {
     const config = readProjectConfig();
     if (!config) {
@@ -245,58 +384,318 @@ export const pushCommand = new Command("push")
       return;
     }
 
-    // Diff against last push state
-    const { changed, unchanged } = getChangedWordings(
-      wordings,
-      config.localesDir,
+    // ────────────────────────────────────────────────────────────────
+    // Three-way diff: Local (L) vs Server (S) vs Push-state baseline (P)
+    // ────────────────────────────────────────────────────────────────
+    const state = readPushState(config.localesDir);
+    const stateEmpty = Object.keys(state.wordings).length === 0;
+
+    // Step 1: cheap drift check. If state is empty we must fetch full S.
+    // Otherwise, ask the server for just (namespace, key, updated_at) per
+    // wording and compare against the timestamps we recorded last sync.
+    let serverWordings: Wording[] = [];
+    let needFullPull = stateEmpty;
+
+    if (!stateEmpty) {
+      const driftSpinner = p.spinner();
+      driftSpinner.start("Checking for server-side changes...");
+      try {
+        const { revisions } = await callCliSync(
+          "pull-revisions",
+          { project_id: config.projectId },
+          config.apiKey,
+        );
+        const serverKeyMap = new Map<string, string>();
+        for (const r of revisions) {
+          serverKeyMap.set(`${r.namespace}:${r.key}`, r.updated_at);
+        }
+        const stateKeys = Object.keys(state.wordings);
+        // Drift if: any new server key, any deleted server key, or any
+        // updated_at mismatch on a known key.
+        if (serverKeyMap.size !== stateKeys.length) {
+          needFullPull = true;
+        } else {
+          for (const sk of stateKeys) {
+            const stateUpdatedAt = state.wordings[sk].updated_at;
+            const serverUpdatedAt = serverKeyMap.get(sk);
+            if (stateUpdatedAt !== serverUpdatedAt) {
+              needFullPull = true;
+              break;
+            }
+          }
+        }
+        driftSpinner.stop(
+          needFullPull
+            ? "Server has changes since last sync"
+            : "Server in sync with baseline",
+        );
+      } catch {
+        // pull-revisions failed (e.g. running against an old server that
+        // doesn't expose this endpoint). Fall back to full pull so we
+        // never silently push stale data.
+        driftSpinner.stop("Revision check unavailable, doing full pull");
+        needFullPull = true;
+      }
+    }
+
+    if (needFullPull) {
+      const pullSpinner = p.spinner();
+      pullSpinner.start("Fetching current server state...");
+      try {
+        const pullResult: PullResponse = await callCliSync(
+          "pull",
+          { project_id: config.projectId },
+          config.apiKey,
+        );
+        serverWordings = pullResult.wordings;
+        pullSpinner.stop(
+          `Fetched ${serverWordings.length} keys from server`,
+        );
+      } catch (err) {
+        pullSpinner.stop("Could not fetch server state.");
+        p.log.error(err instanceof Error ? err.message : "Unknown error");
+        p.outro("Push aborted.");
+        return;
+      }
+    } else {
+      // No drift: synthesize server snapshot from state baseline. This is
+      // safe because state == server when there's no drift.
+      serverWordings = Object.entries(state.wordings).map(([nsKey, entry]) => {
+        const colonIndex = nsKey.indexOf(":");
+        return {
+          namespace: nsKey.slice(0, colonIndex),
+          key: nsKey.slice(colonIndex + 1),
+          value_json: { ...entry.values },
+          updated_at: entry.updated_at,
+        };
+      });
+    }
+
+    const diff: DiffResult = diffThreeWay(wordings, serverWordings, state);
+
+    // Filter local-deletion warnings to those NOT explained by plan-trim.
+    const realLocalDeletions = diff.localDeletions.filter(
+      (d) => !exceededLangs.has(d.lang),
     );
 
-    if (changed.length === 0) {
-      p.log.info(`No changes detected (${unchanged} keys unchanged)`);
-    } else {
-      if (unchanged > 0) {
-        p.log.info(
-          `${changed.length} changed, ${unchanged} unchanged (skipped)`,
+    p.log.info(
+      `${diff.toPush.length} local edits · ${diff.serverOnly.length} server-only · ${diff.conflicts.length} conflicts · ${diff.unchanged} unchanged`,
+    );
+
+    if (realLocalDeletions.length > 0) {
+      const sample = realLocalDeletions.slice(0, 3)
+        .map((d) => `${d.namespace}.${d.key} [${d.lang}]`)
+        .join(", ");
+      const more = realLocalDeletions.length > 3
+        ? ` (+${realLocalDeletions.length - 3} more)`
+        : "";
+      p.log.warn(
+        `${realLocalDeletions.length} lang value(s) exist on server but are missing locally${more}: ${sample}. The CLI does not propagate deletes — use the dashboard to remove them, or re-pull to bring them back.`,
+      );
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Conflict resolution
+    // ────────────────────────────────────────────────────────────────
+    const resolvedToPush: typeof diff.toPush = [...diff.toPush];
+    const resolvedServerOnly: typeof diff.serverOnly = [...diff.serverOnly];
+
+    if (diff.conflicts.length > 0) {
+      const strategy: string = opts.force
+        ? "ours"
+        : (opts.strategy ?? "interactive");
+
+      if (strategy === "ours") {
+        for (const c of diff.conflicts) {
+          resolvedToPush.push({
+            namespace: c.namespace, key: c.key, lang: c.lang, value: c.local,
+          });
+        }
+        p.log.warn(
+          `--force / --strategy ours: ${diff.conflicts.length} conflicts resolved by overwriting server with local.`,
         );
+      } else if (strategy === "theirs") {
+        for (const c of diff.conflicts) {
+          resolvedServerOnly.push({
+            namespace: c.namespace, key: c.key, lang: c.lang,
+            value: c.server, previous: c.base,
+          });
+        }
+        p.log.info(
+          `--strategy theirs: ${diff.conflicts.length} conflicts resolved by accepting server values.`,
+        );
+      } else if (strategy === "abort") {
+        p.log.error(
+          `${diff.conflicts.length} conflicts detected. --strategy abort requested; no changes pushed.`,
+        );
+        renderConflicts(diff.conflicts);
+        p.outro("Push aborted.");
+        return;
+      } else if (strategy === "interactive" && process.stdout.isTTY) {
+        const resolution = await resolveConflictsInteractive(diff.conflicts);
+        if (resolution === "abort") {
+          p.outro("Push aborted.");
+          return;
+        }
+        for (const c of resolution.localWins) {
+          resolvedToPush.push({
+            namespace: c.namespace, key: c.key, lang: c.lang, value: c.local,
+          });
+        }
+        for (const c of resolution.serverWins) {
+          resolvedServerOnly.push({
+            namespace: c.namespace, key: c.key, lang: c.lang,
+            value: c.server, previous: c.base,
+          });
+        }
+      } else {
+        // Non-TTY with no explicit strategy — refuse silently.
+        p.log.error(
+          `${diff.conflicts.length} conflict(s) require resolution. In non-interactive contexts, pass --strategy ours|theirs|abort.`,
+        );
+        renderConflicts(diff.conflicts);
+        p.outro("Push aborted.");
+        return;
+      }
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Auto-pull server-only changes to local files
+    // ────────────────────────────────────────────────────────────────
+    if (resolvedServerOnly.length > 0) {
+      const soSpinner = p.spinner();
+      soSpinner.start(
+        `Auto-pulling ${resolvedServerOnly.length} server-only change(s) to local files...`,
+      );
+      try {
+        applyServerOnlyToLocalFiles(
+          resolvedServerOnly,
+          wordings,
+          config.localesDir,
+          parser,
+        );
+        soSpinner.stop(
+          `Wrote ${resolvedServerOnly.length} update(s) to locale files`,
+        );
+      } catch (err) {
+        soSpinner.stop("Auto-pull failed.");
+        p.log.warn(
+          `Could not write server-only updates to disk: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        p.log.info("Run `i1n pull` manually to bring them in.");
+      }
+    }
+
+    // ────────────────────────────────────────────────────────────────
+    // Build the push payload and execute
+    // ────────────────────────────────────────────────────────────────
+    if (resolvedToPush.length === 0) {
+      // Nothing to push, but state should advance so next push is fast.
+      const nextState = buildNextState(serverWordings, {});
+      writePushState(nextState, config.localesDir);
+
+      if (diff.serverOnly.length === 0 && diff.conflicts.length === 0) {
+        p.log.info("No changes to push.");
+      } else {
+        p.log.info("Local synced with server. Nothing to push.");
+      }
+    } else {
+      // Group toPush by (ns, key); each wording carries only the langs
+      // that actually changed. expected_updated_at comes from state P
+      // for optimistic-concurrency on the server.
+      const payloadByKey = new Map<string, Wording & { expected_updated_at?: string }>();
+      for (const item of resolvedToPush) {
+        const k = `${item.namespace}:${item.key}`;
+        let w = payloadByKey.get(k);
+        if (!w) {
+          const stateEntry: PushStateEntry | undefined = state.wordings[k];
+          w = {
+            namespace: item.namespace,
+            key: item.key,
+            value_json: {},
+            expected_updated_at: stateEntry?.updated_at,
+          };
+          payloadByKey.set(k, w);
+        }
+        w.value_json[item.lang] = item.value;
       }
 
-      // Push only changed wordings
+      const payload = Array.from(payloadByKey.values());
+
       const pushSpinner = p.spinner();
       pushSpinner.start("Pushing to i1n...");
 
       const BATCH_SIZE = 500;
       let totalCreated = 0;
       let totalUpdated = 0;
+      const serverSideConflicts: PushConflict[] = [];
+      const pushedPerKeyLang: Record<string, Record<string, string>> = {};
 
-      for (let i = 0; i < changed.length; i += BATCH_SIZE) {
-        const batch = changed.slice(i, i + BATCH_SIZE);
+      // Track per-batch what was sent so we can update state incrementally
+      // even on a partial batch failure.
+      const batchProgress: Wording[][] = [];
+      for (let i = 0; i < payload.length; i += BATCH_SIZE) {
+        batchProgress.push(payload.slice(i, i + BATCH_SIZE));
+      }
 
+      for (let bi = 0; bi < batchProgress.length; bi++) {
+        const batch = batchProgress[bi];
         try {
-          const result = await callCliSync(
+          const result: PushResponse = await callCliSync(
             "push",
             { project_id: config.projectId, wordings: batch },
             config.apiKey,
           );
           totalCreated += result.created;
           totalUpdated += result.updated;
+          if (result.conflicts && result.conflicts.length > 0) {
+            serverSideConflicts.push(...result.conflicts);
+          }
           if (result.warning) {
             pushSpinner.stop("Push completed with warnings.");
             p.log.warn(result.warning);
             pushSpinner.start("Continuing push...");
           }
+          // Record what landed in this batch for the state file.
+          const conflictKeySet = new Set<string>(
+            (result.conflicts ?? []).map((c) => `${c.namespace}:${c.key}`),
+          );
+          for (const w of batch) {
+            const k = `${w.namespace}:${w.key}`;
+            if (conflictKeySet.has(k)) continue;
+            if (!pushedPerKeyLang[k]) pushedPerKeyLang[k] = {};
+            for (const [lang, val] of Object.entries(w.value_json)) {
+              pushedPerKeyLang[k][lang] = val;
+            }
+          }
+          // Atomic state write per successful batch — protects against
+          // mid-loop crashes leaving the next push to re-send everything.
+          const partialState = buildNextState(serverWordings, pushedPerKeyLang);
+          writePushState(partialState, config.localesDir);
         } catch (err) {
           pushSpinner.stop("Push failed.");
           p.log.error(err instanceof Error ? err.message : "Unknown error");
+          // State was updated for any prior successful batches.
           process.exit(1);
         }
       }
 
       pushSpinner.stop(
-        `${changed.length} keys synced (${totalCreated} created, ${totalUpdated} updated)`,
+        `${totalCreated} created, ${totalUpdated} updated`,
       );
 
-      // Save state after successful push
-      writePushState(wordings, config.localesDir);
+      if (serverSideConflicts.length > 0) {
+        p.log.warn(
+          `Server reported ${serverSideConflicts.length} stale item(s) (changed by another writer during this push). They were NOT updated. Re-run \`i1n push\` to resolve.`,
+        );
+        for (const c of serverSideConflicts.slice(0, 5)) {
+          p.log.info(`  ${c.namespace}.${c.key}`);
+        }
+      }
+
+      // Final state write — captures the full post-push baseline.
+      const nextState = buildNextState(serverWordings, pushedPerKeyLang);
+      writePushState(nextState, config.localesDir);
     }
 
     // Parse --translate flag for target languages

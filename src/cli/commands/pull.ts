@@ -6,7 +6,7 @@ import { readProjectConfig } from "../../shared/config.js";
 import { callCliSync } from "../../shared/supabase.js";
 import { getParser } from "../../parsers/index.js";
 import { generateTypeDefinitions } from "../../shared/codegen.js";
-import { writePushState } from "../../shared/push-state.js";
+import { buildNextState, writePushState } from "../../shared/push-state.js";
 import { ensureConfigInclude } from "../../shared/tsconfig.js";
 import type { I1nProjectConfig } from "../../shared/types.js";
 
@@ -42,8 +42,11 @@ export async function executePull(
   fs.mkdirSync(path.dirname(typesPath), { recursive: true });
   fs.writeFileSync(typesPath, typeDefs, "utf-8");
 
-  // Update push state so next push only sends actual changes
-  writePushState(wordings, config.localesDir);
+  // Update push state so the next `i1n push` sees the freshly-pulled
+  // server snapshot as its baseline. State v2 carries per-language
+  // values + per-key updated_at, enabling the three-way diff and
+  // optimistic-concurrency token forwarding.
+  writePushState(buildNextState(wordings, {}), config.localesDir);
 
   // Ensure IDE finds the types (DX automation)
   ensureConfigInclude(config.localesDir);
