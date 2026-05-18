@@ -77,6 +77,13 @@ i1n pull
 - Detects new keys and source changes.
 - **Smart Translate**: Offers to translate missing keys with a cost estimate before proceeding.
 - Efficient caching layer — repeated translations cost a fraction of fresh ones.
+- **Three-way diff** — push only sends the (key, lang) pairs you actually changed, never overwriting edits made via the dashboard or by other teammates. See [Team workflow](#-team-workflow) for the full conflict model.
+
+**Flags:**
+
+- `--translate [langs]` — trigger AI translation after push (e.g. `--translate es,fr,ja`)
+- `--strategy <mode>` — how to handle real conflicts: `interactive` (default in TTY), `ours`, `theirs`, `abort`
+- `--force` — shorthand for `--strategy ours` (overwrite the server with your local values; destructive)
 
 ### ⬇️ `i1n pull`
 
@@ -128,7 +135,7 @@ claude mcp add i1n -- npx i1n mcp
 | Tool | Description |
 | ---- | ----------- |
 | `i1n_status` | Get project status, plan, limits, and active languages |
-| `i1n_push` | Push local translation files with automatic diff detection |
+| `i1n_push` | Push local translation files with three-way diff (preserves server-side edits, aborts on conflict so the agent can resolve) |
 | `i1n_pull` | Pull translations and generate type-safe TypeScript definitions |
 | `i1n_translate` | Translate keys to specified languages using AI |
 | `i1n_add_language` | Add new languages with optional auto-translation |
@@ -144,6 +151,71 @@ claude mcp add i1n -- npx i1n mcp
 4. The agent rewrites your component with `t('key')` calls
 
 A 60-minute task in 30 seconds.
+
+---
+
+## 👥 Team workflow
+
+i1n is designed for teams where multiple people edit translations in parallel — devs in different branches, copywriters in the dashboard, AI agents via MCP. `i1n push` is safe to run without worrying that your local working tree might pulverize someone else's edits.
+
+### How push decides what to send
+
+Before every push, the CLI:
+
+1. Reads your local locale files (`L`).
+2. Asks the server which keys exist and when each was last modified (cheap metadata-only call, ~50× smaller than a full pull).
+3. If anything moved on the server since your last sync, fetches the full server state (`S`).
+4. Computes a three-way diff per `(namespace, key, lang)` against the last baseline you synced (`P`, stored in `locales/.i1n-push-state.json`).
+
+For each `(key, lang)` the diff places it in one of these buckets:
+
+| Local | Server | Baseline | Action |
+| --- | --- | --- | --- |
+| `==` server | — | — | unchanged, skip |
+| `==` baseline | changed | — | **server-only** — auto-pull into your locale files |
+| changed | `==` baseline | — | **local edit** — push it |
+| changed | changed | both moved | **conflict** — resolve interactively |
+| missing | present | present in baseline | warn, don't propagate (no delete verb) |
+
+Only the languages that genuinely changed locally are sent. Languages you didn't touch are not in the payload, so the server's per-language merge preserves them. No more "my push silently overwrote yield_rate that I never even opened".
+
+### When there's a real conflict
+
+A real conflict means **you and someone else both edited the same `(key, lang)` to different values** since the last sync. The CLI shows each one and asks you to pick:
+
+```
+Conflict 1/3: common.greeting [en_us]
+
+  › Keep local: "Hello there"
+    Accept server: "Hi"
+    Abort push
+```
+
+- **Local** → push your value, overwrite the server.
+- **Server** → discard your local, auto-pull the server's value into your file.
+- **Abort** → exit; nothing is pushed.
+
+For batch / CI / non-interactive environments, pass a strategy:
+
+```bash
+i1n push --strategy theirs   # accept all server values, push nothing for conflicts
+i1n push --strategy ours     # local wins (alias: --force)
+i1n push --strategy abort    # exit on any conflict
+```
+
+In non-TTY contexts (e.g. CI without a strategy flag), push aborts with a diff of the conflicts so you can resolve in code.
+
+### Auto-pulling server-only changes
+
+If a teammate or someone in the dashboard updated a key you never touched, the server's value is automatically written into your local file at push time and your `i1n.d.ts` is regenerated if needed. Your working tree ends up reflecting reality — your `git diff` will show the bring-in so you can commit it alongside your own changes.
+
+### MCP push (AI agents)
+
+The MCP `i1n_push` tool runs the same diff but defaults to **abort on conflict** because an AI agent should not silently pick a winner. Conflicts are reported in the response so the agent can decide to pull, ask you, or resolve manually before retrying.
+
+### Fresh checkouts
+
+`locales/.i1n-push-state.json` is gitignored by design — it's working-tree state, like `.git/index`. On a fresh clone or new branch where the file doesn't exist, the baseline is synthesized from the server. Any local divergence from the server is then treated as a conflict (the CLI can't tell whether you edited locally or have stale data). Run `i1n pull` first if you just cloned and want to bring everything in cleanly.
 
 ---
 

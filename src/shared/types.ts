@@ -80,6 +80,12 @@ export interface PushConflict {
 export interface PushResponse {
   created: number;
   updated: number;
+  /**
+   * Items the server attempted to merge but couldn't (transient DB
+   * error inside a chunk). Set on v1.4+ servers; older servers omit.
+   * The CLI surfaces this so partial-success pushes don't fail silently.
+   */
+  failed?: number;
   warning?: string;
   /**
    * Items the server refused to merge because the client's
