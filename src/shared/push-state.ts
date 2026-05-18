@@ -270,15 +270,20 @@ export function diffThreeWay(
           serverOnly.push({
             namespace, key, lang, value: s, previous: undefined,
           });
-        } else if (p === s) {
+        } else if (!stateWasEmpty && p === s) {
           // We knew this lang existed and didn't touch it locally
           // (file might not have been re-exported). Treat as deletion
           // candidate — warn and DO NOT propagate (no delete verb).
+          //
+          // The `!stateWasEmpty` guard is critical: when P was
+          // synthesized from S, `p === s` is true for every lang the
+          // server has, so without this guard every absent-local lang
+          // would be misreported as a deletion on a fresh checkout.
           localDeletions.push({ namespace, key, lang, serverValue: s });
         } else {
-          // Server changed it AND we lost it locally; surface as
-          // server-only bring-in (do not propagate a local delete that
-          // is itself ambiguous).
+          // Server changed it AND we lost it locally, OR baseline was
+          // synthesized: bring it in (do not propagate an ambiguous
+          // local delete).
           serverOnly.push({
             namespace, key, lang, value: s, previous: p,
           });

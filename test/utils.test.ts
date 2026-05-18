@@ -632,6 +632,22 @@ describe("diffThreeWay", () => {
     expect(diff.conflicts.length).toBe(0);
   });
 
+  // Regression: fresh checkout where server has a lang local doesn't.
+  // Before the fix, this misrouted to localDeletions because the
+  // synthesized P had `p === s` for every lang the server had.
+  it("fresh checkout: server has a lang local doesn't → serverOnly, NOT localDeletion", () => {
+    const diff = diffThreeWay(
+      [L({ en_us: "x" })],
+      [S({ en_us: "x", es_ar: "hola" })],
+      emptyP,
+    );
+    expect(diff.serverOnly.length).toBe(1);
+    expect(diff.serverOnly[0].lang).toBe("es_ar");
+    expect(diff.serverOnly[0].value).toBe("hola");
+    expect(diff.localDeletions.length).toBe(0);
+    expect(diff.conflicts.length).toBe(0);
+  });
+
   // Local lang absent when server changed it — still serverOnly bring-in (not a delete)
   it("local lang absent + server changed lang since baseline → serverOnly bring-in", () => {
     const diff = diffThreeWay(
