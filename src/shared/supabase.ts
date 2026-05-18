@@ -5,6 +5,7 @@ import type {
   ProjectLimitsResponse,
   ProjectSettingsResponse,
   PullResponse,
+  PullRevisionsResponse,
   PushResponse,
   TranslateResponse,
   TranslationProgressResponse,
@@ -22,6 +23,7 @@ type Action =
   | "validate"
   | "push"
   | "pull"
+  | "pull-revisions"
   | "translate"
   | "estimate-translate"
   | "translation-progress"
@@ -33,6 +35,7 @@ type ActionResponseMap = {
   validate: ValidateResponse;
   push: PushResponse;
   pull: PullResponse;
+  "pull-revisions": PullRevisionsResponse;
   translate: TranslateResponse;
   "estimate-translate": EstimateTranslateResponse;
   "translation-progress": TranslationProgressResponse;

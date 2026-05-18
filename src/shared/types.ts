@@ -33,6 +33,13 @@ export interface Wording {
   namespace: string;
   value_json: Record<string, string>;
   description?: string;
+  /**
+   * Server's `updated_at` for this row, surfaced by `pull` and used by
+   * subsequent `push` calls as an optimistic-concurrency token. Only set
+   * on wordings that came from the server; locally-parsed wordings won't
+   * have it.
+   */
+  updated_at?: string;
 }
 
 export interface Language {
@@ -63,10 +70,37 @@ export interface I1nParser {
   extensions: string[];
 }
 
+export interface PushConflict {
+  namespace: string;
+  key: string;
+  server_updated_at: string;
+  server_value_json: Record<string, string>;
+}
+
 export interface PushResponse {
   created: number;
   updated: number;
   warning?: string;
+  /**
+   * Items the server refused to merge because the client's
+   * `expected_updated_at` was older than the server's current
+   * `updated_at`. Empty for non-optimistic-concurrency pushes and on
+   * servers that don't implement the v2 RPC.
+   */
+  conflicts?: PushConflict[];
+}
+
+export interface RevisionEntry {
+  namespace: string;
+  key: string;
+  updated_at: string;
+}
+
+/** Lightweight metadata fetched by `pull-revisions` for pre-push drift
+ * detection. Stripped of `value_json`/`description` so the payload is
+ * tiny even for projects with thousands of keys. */
+export interface PullRevisionsResponse {
+  revisions: RevisionEntry[];
 }
 
 export interface PullResponse {
