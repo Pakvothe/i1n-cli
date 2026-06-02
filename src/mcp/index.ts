@@ -5,10 +5,6 @@ import { z } from "zod";
 
 import { markAsMCPRuntime } from "../shared/supabase.js";
 import { handleStatus } from "./tools/status.js";
-
-// Tag every cli-sync request from this process as MCP-originated so
-// the dashboard's audit_logs differentiates MCP vs direct CLI usage.
-markAsMCPRuntime();
 import { handlePull } from "./tools/pull.js";
 import { handlePush } from "./tools/push.js";
 import { handleTranslate } from "./tools/translate.js";
@@ -129,6 +125,13 @@ function createServer(): McpServer {
 }
 
 async function startMcpServer(): Promise<void> {
+  // Tag every cli-sync request from this process as MCP-originated so
+  // the dashboard's audit_logs differentiates MCP vs direct CLI usage.
+  // MUST stay inside this action — registering at module load would
+  // misattribute every plain `i1n` CLI invocation as MCP, because
+  // `cli/index.ts` statically imports `mcpCommand` to register the
+  // subcommand even when the user runs a non-MCP command.
+  markAsMCPRuntime();
   const server = createServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);
