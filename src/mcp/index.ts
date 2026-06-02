@@ -3,7 +3,12 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { Command } from "commander";
 import { z } from "zod";
 
+import { markAsMCPRuntime } from "../shared/supabase.js";
 import { handleStatus } from "./tools/status.js";
+
+// Tag every cli-sync request from this process as MCP-originated so
+// the dashboard's audit_logs differentiates MCP vs direct CLI usage.
+markAsMCPRuntime();
 import { handlePull } from "./tools/pull.js";
 import { handlePush } from "./tools/push.js";
 import { handleTranslate } from "./tools/translate.js";
