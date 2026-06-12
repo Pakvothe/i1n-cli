@@ -2,7 +2,7 @@
 
 **Your app in every language. One command.**
 
-[![npm](https://img.shields.io/npm/v/i1n)](https://www.npmjs.com/package/i1n) [![license](https://img.shields.io/npm/l/i1n)](https://github.com/Pakvothe/i1n-cli/blob/main/LICENSE) [![MCP](https://img.shields.io/badge/MCP-8_tools-amber)](https://i1n.ai) [![Listed on MCP Servers](https://img.shields.io/badge/mcpservers.org-listed-blue)](https://mcpservers.org/servers/pakvothe/i1n-cli) [![Security: DeepSec](https://img.shields.io/badge/security-DeepSec_audited-success)](https://github.com/vercel-labs/deepsec)
+[![npm](https://img.shields.io/npm/v/i1n)](https://www.npmjs.com/package/i1n) [![license](https://img.shields.io/npm/l/i1n)](https://github.com/Pakvothe/i1n-cli/blob/main/LICENSE) [![MCP](https://img.shields.io/badge/MCP-9_tools-amber)](https://i1n.ai) [![Listed on MCP Servers](https://img.shields.io/badge/mcpservers.org-listed-blue)](https://mcpservers.org/servers/pakvothe/i1n-cli) [![Security: DeepSec](https://img.shields.io/badge/security-DeepSec_audited-success)](https://github.com/vercel-labs/deepsec)
 
 ![demo](./demo.gif)
 
@@ -145,11 +145,12 @@ claude mcp add i1n -- npx i1n mcp
 }
 ```
 
-**8 tools available:**
+**9 tools available:**
 
 | Tool | Description |
 | ---- | ----------- |
 | `i1n_status` | Get project status, plan, limits, and active languages |
+| `i1n_check` | Validate locale files offline: missing keys, broken placeholders, coverage |
 | `i1n_push` | Push local translation files with three-way diff (preserves server-side edits, aborts on conflict so the agent can resolve) |
 | `i1n_pull` | Pull translations and generate type-safe TypeScript definitions |
 | `i1n_translate` | Translate keys to specified languages using AI |
