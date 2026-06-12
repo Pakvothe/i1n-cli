@@ -151,3 +151,10 @@ describe("leaked masking tokens", () => {
     expect(report.issues.some(i => i.detail.includes("__wu__"))).toBe(true);
   });
 });
+
+  test("tokens present in the source are legitimate content, not leaks", () => {
+    const report = runCheck({ sourceLocale: "en_us" }, [
+      { key: "d", namespace: "docs", value_json: { en_us: "Use the __init__ method", es_ar: "Usá el método __init__" } },
+    ]);
+    expect(report.issues).toHaveLength(0);
+  });

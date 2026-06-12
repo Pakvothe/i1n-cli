@@ -124,9 +124,13 @@ export function runCheck(
       translatedByLang[lang]++;
 
       // Masking-style tokens (__VAR_1__, __wu__) leaking from a translation
-      // pipeline are always wrong, even when the source has no variables.
-      const leaked = value.match(/__[A-Za-z]+_?\d*__/g);
-      if (leaked) {
+      // pipeline are wrong even when the source has no variables — unless the
+      // source itself contains the token (then it's legitimate content, e.g.
+      // docs mentioning __init__ or __VAR_N__).
+      const leaked = (value.match(/__[A-Za-z]+_?\d*__/g) ?? []).filter(
+        token => !(sourceValue ?? "").includes(token),
+      );
+      if (leaked.length > 0) {
         issues.push({
           type: "placeholder_mismatch",
           severity: "error",
