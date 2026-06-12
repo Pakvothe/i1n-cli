@@ -132,3 +132,22 @@ describe("runCheck", () => {
     expect(report.coverage.overall).toBe(75);
   });
 });
+
+describe("leaked masking tokens", () => {
+  test("flags __VAR_N__ even when source has no variables", () => {
+    const report = runCheck({ sourceLocale: "en_us" }, [
+      { key: "t", namespace: "n", value_json: { en_us: "Plurals preserved", it_it: "Plurali (__VAR_1__, __VAR_2__) conservati" } },
+    ]);
+    const leaks = report.issues.filter(i => i.detail.includes("Leaked masking token"));
+    expect(leaks).toHaveLength(1);
+    expect(leaks[0].severity).toBe("error");
+    expect(leaks[0].detail).toContain("__VAR_1__");
+  });
+
+  test("flags name-style tokens like __wu__", () => {
+    const report = runCheck({ sourceLocale: "en_us" }, [
+      { key: "t", namespace: "n", value_json: { en_us: "Regenerate", ja_jp: "再生成 (__wu__)" } },
+    ]);
+    expect(report.issues.some(i => i.detail.includes("__wu__"))).toBe(true);
+  });
+});

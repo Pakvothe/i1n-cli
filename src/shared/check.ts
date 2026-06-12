@@ -123,6 +123,20 @@ export function runCheck(
       translatedCells++;
       translatedByLang[lang]++;
 
+      // Masking-style tokens (__VAR_1__, __wu__) leaking from a translation
+      // pipeline are always wrong, even when the source has no variables.
+      const leaked = value.match(/__[A-Za-z]+_?\d*__/g);
+      if (leaked) {
+        issues.push({
+          type: "placeholder_mismatch",
+          severity: "error",
+          namespace: w.namespace,
+          key: w.key,
+          lang,
+          detail: `Leaked masking token(s): ${[...new Set(leaked)].join(", ")}`,
+        });
+      }
+
       if (hasValue(sourceValue)) {
         const langVars = extractVariables(value);
         const missing = sourceVars.filter(v => !langVars.includes(v));
