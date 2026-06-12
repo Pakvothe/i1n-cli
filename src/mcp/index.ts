@@ -7,6 +7,7 @@ import { markAsMCPRuntime } from "../shared/supabase.js";
 import { handleStatus } from "./tools/status.js";
 import { handlePull } from "./tools/pull.js";
 import { handlePush } from "./tools/push.js";
+import { handleCheck } from "./tools/check.js";
 import { handleTranslate } from "./tools/translate.js";
 import { handleAddLanguage } from "./tools/add-language.js";
 import { handleExtractAndTranslate } from "./tools/extract-and-translate.js";
@@ -41,6 +42,15 @@ function createServer(): McpServer {
     "Push local translation files to i1n (with diff detection, only changed keys are pushed)",
     {},
     async () => handlePush(),
+  );
+
+  server.tool(
+    "i1n_check",
+    "Validate local translation files offline: missing keys per language, broken interpolation placeholders, empty values, and coverage. Returns a JSON report. Safe for CI — no API calls.",
+    {
+      minCoverage: z.number().min(0).max(100).optional().describe("Fail (error-level issue) when overall translation coverage % is below this value"),
+    },
+    async (params) => handleCheck(params),
   );
 
   server.tool(

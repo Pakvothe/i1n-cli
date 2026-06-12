@@ -5,6 +5,7 @@ import { pullCommand } from "./commands/pull.js";
 import { setupAiCommand } from "./commands/setup-ai.js";
 import { addLanguageCommand } from "./commands/add-language.js";
 import { projectLimitsCommand } from "./commands/project-limits.js";
+import { checkCommand } from "./commands/check.js";
 import { mcpCommand } from "../mcp/index.js";
 
 import fs from "node:fs";
@@ -28,6 +29,7 @@ program.addCommand(pullCommand);
 program.addCommand(setupAiCommand);
 program.addCommand(addLanguageCommand);
 program.addCommand(projectLimitsCommand);
+program.addCommand(checkCommand);
 program.addCommand(mcpCommand);
 
 program.on("command:*", (operands) => {

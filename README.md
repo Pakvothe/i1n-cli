@@ -14,7 +14,7 @@ Localization as code. Push your translation keys, AI translates to 182 languages
 
 ## Why i1n?
 
-Traditional i18n means dozens of JSON files, zero type safety, hours of copy-pasting, and deploys that break at 2 AM. Existing tools charge $120+/mo and require browser-based workflows.
+Traditional i18n means dozens of JSON files, zero type safety, hours of copy-pasting, and deploys that break at 2 AM. Existing tools charge $144+/mo and require browser-based workflows.
 
 i1n is different:
 
@@ -22,7 +22,7 @@ i1n is different:
 - **Type-safe** — auto-generated `i1n.d.ts` with full IDE autocomplete
 - **AI-native** — MCP server for Cursor, Claude Code, Windsurf. Your agent handles i18n for you
 - **Zero migration** — Bridge Mode wraps your existing i18next/next-intl/vue-i18n
-- **6x cheaper** — Free tier included. Pro at $19/mo vs Lokalise at $120/mo
+- **5x cheaper** — Free tier included. Pro at $29/mo vs Lokalise at $144/mo
 
 ---
 
@@ -98,6 +98,21 @@ i1n pull
 
 - View your current plan and credit usage.
 - Monitor active language slots and available capacity.
+
+### ✅ `i1n check`
+
+**Catch broken translations before they ship. Built for CI.**
+
+- Detects missing keys per language, **broken interpolation placeholders** (`{{count}}` lost in translation), empty values, and malformed files.
+- `--min-coverage 95` fails the build when translation coverage drops below your threshold.
+- `--json` for tooling. Exit codes: `0` clean, `1` errors found, `2` config problem.
+- 100% offline — no API calls, no secrets needed in CI.
+
+```yaml
+# .github/workflows/ci.yml
+- name: Validate translations
+  run: npx i1n check --min-coverage 95
+```
 
 ### 🧠 `i1n setup-ai`
 
@@ -444,16 +459,16 @@ t(dynamicKey);
 
 ## 💳 Pricing
 
-| Plan | Price | Keys | Languages | AI translations/mo |
-|------|-------|------|-----------|--------------------|
-| **Starter** | $0 | 600 | 2 | 2,000 |
-| **Pro** | $19/mo | 5,000 | 5 | 10,000 |
-| **Business** | $49/mo | 15,000 | 12 | 20,000 |
-| **Enterprise** | Custom | Custom | 182 | Custom |
+| Plan | Price | Keys (shared pool) | Languages | AI translations/mo |
+|------|-------|--------------------|-----------|--------------------|
+| **Starter** | $0 | 200 | 2 | 2,000 |
+| **Pro** | $29/mo | 2,000 | 3 | 10,000 |
+| **Business** | $99/mo | 8,000 | 6 | 30,000 |
+| **Enterprise** | From $399/mo | Custom (25k+) | Unlimited | Custom |
 
 CLI, SDK, and MCP server are free on every plan. No credit card required for Starter.
 
-Pro lifetime from $99 — [only for the first 200 users](https://i1n.ai/pricing).
+Pro lifetime from $199 — [only for the first 200 users](https://i1n.ai/pricing).
 
 ---
 
