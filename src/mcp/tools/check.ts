@@ -20,6 +20,11 @@ export async function handleCheck(args: { minCoverage?: number }) {
   try {
     const parser = getParser(config.format);
     const { wordings, warnings } = parser.read(config.localesDir, config.sourceLocale);
+    if (wordings.length === 0) {
+      return error(
+        `No translation keys found in ${config.localesDir} with format "${config.format}". Check the format and localesDir settings in i1n.config.json.`,
+      );
+    }
     const report = runCheck(config, wordings, warnings, {
       minCoverage: args.minCoverage,
     });

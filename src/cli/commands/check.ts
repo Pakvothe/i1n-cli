@@ -96,6 +96,15 @@ export const checkCommand = new Command("check")
 
     const parser = getParser(config.format);
     const { wordings, warnings } = parser.read(config.localesDir, config.sourceLocale);
+
+    // Zero keys means the parser found nothing — almost always a format/dir
+    // mismatch in config. A green "0 keys" exit would be a false pass in CI.
+    if (wordings.length === 0) {
+      console.error(
+        `No translation keys found in ${config.localesDir} with format "${config.format}". Check the format and localesDir settings in i1n.config.json.`,
+      );
+      process.exit(2);
+    }
     const report = runCheck(config, wordings, warnings, {
       minCoverage: options.minCoverage,
     });
