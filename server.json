@@ -1,0 +1,31 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "io.github.pakvothe/i1n",
+  "description": "Agent-complete localization: extract strings, push keys, AI-translate to 182 languages, and pull type-safe TypeScript definitions — a full i18n loop in one agent session.",
+  "repository": {
+    "url": "https://github.com/Pakvothe/i1n-cli",
+    "source": "github"
+  },
+  "version": "1.4.2",
+  "websiteUrl": "https://i1n.ai",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "i1n",
+      "version": "1.4.2",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp",
+          "description": "Start the i1n MCP server"
+        }
+      ],
+      "environmentVariables": []
+    }
+  ]
+}
