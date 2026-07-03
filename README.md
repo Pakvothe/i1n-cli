@@ -2,7 +2,7 @@
 
 **Your app in every language. One command.**
 
-[![npm](https://img.shields.io/npm/v/i1n)](https://www.npmjs.com/package/i1n) [![license](https://img.shields.io/npm/l/i1n)](https://github.com/Pakvothe/i1n-cli/blob/main/LICENSE) [![MCP](https://img.shields.io/badge/MCP-9_tools-amber)](https://i1n.ai) [![Listed on MCP Servers](https://img.shields.io/badge/mcpservers.org-listed-blue)](https://mcpservers.org/servers/pakvothe/i1n-cli) [![Security: DeepSec](https://img.shields.io/badge/security-DeepSec_audited-success)](https://github.com/vercel-labs/deepsec)
+[![npm](https://img.shields.io/npm/v/i1n)](https://www.npmjs.com/package/i1n) [![license](https://img.shields.io/npm/l/i1n)](https://github.com/Pakvothe/i1n-cli/blob/main/LICENSE) [![MCP](https://img.shields.io/badge/MCP-9_tools-amber)](https://i1n.ai) [![Listed on MCP Servers](https://img.shields.io/badge/mcpservers.org-listed-blue)](https://mcpservers.org/servers/pakvothe/i1n-cli) [![Security: DeepSec](https://img.shields.io/badge/security-DeepSec_audited-success)](https://github.com/vercel-labs/deepsec) [![SaaSHub](https://img.shields.io/badge/SaaSHub-approved-blue)](https://www.saashub.com/i1n?utm_source=badge&utm_campaign=badge&utm_content=i1n)
 
 ![demo](./demo.gif)
 
