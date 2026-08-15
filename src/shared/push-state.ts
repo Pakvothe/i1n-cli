@@ -377,6 +377,38 @@ export function buildNextState(
   return next;
 }
 
+/**
+ * Roll back the baseline for server-only changes that were NEVER written
+ * to the local files (write-back skipped due to parse warnings, or the
+ * write threw). If the state advanced to the server's values anyway, the
+ * next run would see Local ≠ State == Server(old) and misclassify the
+ * stale local value as a fresh local edit — silently overwriting the
+ * server. Restoring the previous per-lang value AND the previous
+ * updated_at makes the next run detect drift, re-pull, and re-derive the
+ * same server-only change (or conflict) instead.
+ */
+export function revertUnappliedServerOnly(
+  next: PushStateV2,
+  unapplied: ServerOnlyChange[],
+  prev: PushStateV2,
+): void {
+  for (const c of unapplied) {
+    const k = entryKey(c.namespace, c.key);
+    const entry = next.wordings[k];
+    if (!entry) continue;
+    const prevEntry = prev.wordings[k];
+    const prevVal = prevEntry?.values[c.lang];
+    if (prevVal === undefined) {
+      delete entry.values[c.lang];
+    } else {
+      entry.values[c.lang] = prevVal;
+    }
+    // Undefined (missing prev entry) is fine: a mismatch against the
+    // server's timestamp forces a full pull on the next run.
+    entry.updated_at = prevEntry?.updated_at;
+  }
+}
+
 // ─── Back-compat shims used during the transition ─────────────────────
 //
 // Older callers (legacy paths that haven't migrated to the three-way

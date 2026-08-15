@@ -72,9 +72,26 @@ export function unflattenObject(flat: Record<string, string>): Record<string, un
 
     if (!conflict) {
       const lastPart = parts[parts.length - 1];
-      if (!UNSAFE_KEYS.has(lastPart) && typeof current[lastPart] !== "object") {
+      if (UNSAFE_KEYS.has(lastPart)) {
+        // Unsafe as a bare property name — route to the literal-key
+        // fallback below (a dotted own-property assignment is inert),
+        // so multi-segment keys like "a.constructor" aren't dropped.
+        conflict = true;
+      } else if (typeof current[lastPart] !== "object" || current[lastPart] === null) {
         current[lastPart] = flat[key];
+      } else {
+        conflict = true;
       }
+    }
+
+    // Parent/child collision (e.g. both "errors" and "errors.notFound"
+    // exist): nested JSON can't represent both, and dropping the value
+    // silently loses data that only exists on the server — the user sees
+    // it in the dashboard but it never lands in their local files. Keep
+    // it as a literal dotted key instead: flattenObject reads it back to
+    // the exact same flat key, so the round trip is lossless.
+    if (conflict && !UNSAFE_KEYS.has(key)) {
+      result[key] = flat[key];
     }
   }
 

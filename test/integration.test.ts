@@ -279,6 +279,165 @@ describe("CLI Integration Suite", () => {
         expect.stringContaining("Language limit reached"),
       );
     });
+
+    const capacityLimits = (): ProjectLimitsResponse => ({
+      plan_id: "pro",
+      is_locked: false,
+      wordings: { used: 100, limit: 100 }, // zero remaining capacity
+      credits: { used: 0, limit: 1000 },
+      languages: {
+        active: ["en_us"],
+        used: ["en_us"],
+        limit: 2,
+        remaining_slots: 1,
+      },
+      supported_codes: ["en_us"],
+      available_languages: [],
+    });
+
+    it("should push updates to EXISTING keys even at zero wording capacity", async () => {
+      (config.readProjectConfig as any).mockReturnValueOnce({
+        apiKey: "i1n_test_key",
+        projectId: "test-proj-id",
+        localesDir: tempDir, // fresh dir → empty push state
+        sourceLocale: "en_us",
+        format: "nested-json",
+        framework: "generic",
+      });
+      (parsers.getParser as any).mockReturnValue({
+        read: () => ({
+          wordings: [
+            { key: "k", namespace: "ns", value_json: { en_us: "new value" } },
+          ],
+          warnings: [],
+        }),
+        write: () => {},
+      });
+      (supabase.callCliSync as any)
+        .mockResolvedValueOnce(capacityLimits()) // project-limits
+        .mockResolvedValueOnce({
+          wordings: [
+            {
+              key: "k",
+              namespace: "ns",
+              value_json: { en_us: "old value" },
+              updated_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+          languages: ["en_us"],
+          namespaces: [],
+        }) // pull (empty state → full pull)
+        .mockResolvedValueOnce({ created: 0, updated: 1, conflicts: [] }) // push
+        .mockResolvedValueOnce({ estimated_cost: 0 }); // estimate
+
+      await pushCommand.parseAsync(["--strategy", "ours"], { from: "user" });
+
+      const pushCall = (supabase.callCliSync as any).mock.calls.find(
+        (c: any[]) => c[0] === "push",
+      );
+      expect(pushCall).toBeDefined();
+      expect(pushCall[1].wordings[0].key).toBe("k");
+      expect(prompts.log.warn).not.toHaveBeenCalledWith(
+        expect.stringContaining("Wording limit reached"),
+      );
+    });
+
+    it("should skip only NEW keys at zero wording capacity, without touching local files", async () => {
+      (config.readProjectConfig as any).mockReturnValueOnce({
+        apiKey: "i1n_test_key",
+        projectId: "test-proj-id",
+        localesDir: tempDir,
+        sourceLocale: "en_us",
+        format: "nested-json",
+        framework: "generic",
+      });
+      const writeMock = mock(() => {});
+      (parsers.getParser as any).mockReturnValue({
+        read: () => ({
+          wordings: [
+            { key: "brand_new", namespace: "ns", value_json: { en_us: "v" } },
+          ],
+          warnings: [],
+        }),
+        write: writeMock,
+      });
+      (supabase.callCliSync as any)
+        .mockResolvedValueOnce(capacityLimits()) // project-limits
+        .mockResolvedValueOnce({ wordings: [], languages: [], namespaces: [] }) // pull
+        .mockResolvedValueOnce({ estimated_cost: 0 }); // estimate
+
+      await pushCommand.parseAsync(["--strategy", "ours"], { from: "user" });
+
+      const pushCall = (supabase.callCliSync as any).mock.calls.find(
+        (c: any[]) => c[0] === "push",
+      );
+      expect(pushCall).toBeUndefined();
+      expect(prompts.log.warn).toHaveBeenCalledWith(
+        expect.stringContaining("skipping 1 new key(s)"),
+      );
+      // Local files must never be rewritten as a side effect of plan limits
+      expect(writeMock).not.toHaveBeenCalled();
+    });
+
+    it("should NOT rewrite local files with server-only changes when locale files failed to parse", async () => {
+      (config.readProjectConfig as any).mockReturnValueOnce({
+        apiKey: "i1n_test_key",
+        projectId: "test-proj-id",
+        localesDir: tempDir,
+        sourceLocale: "en_us",
+        format: "nested-json",
+        framework: "generic",
+      });
+      const writeMock = mock(() => {});
+      (parsers.getParser as any).mockReturnValue({
+        read: () => ({
+          wordings: [
+            { key: "k", namespace: "ns", value_json: { en_us: "same" } },
+          ],
+          // Simulates a corrupt locale file whose keys are missing from
+          // the in-memory mirror — rewriting from it would destroy them.
+          warnings: [{ file: "locales/en_us/broken.json", message: "bad json" }],
+        }),
+        write: writeMock,
+      });
+      (supabase.callCliSync as any)
+        .mockResolvedValueOnce({
+          plan_id: "pro",
+          is_locked: false,
+          wordings: { used: 0, limit: 1000 },
+          credits: { used: 0, limit: 1000 },
+          languages: {
+            active: ["en_us"],
+            used: ["en_us"],
+            limit: 3,
+            remaining_slots: 2,
+          },
+          supported_codes: ["en_us", "es_es"],
+          available_languages: [],
+        }) // project-limits
+        .mockResolvedValueOnce({
+          wordings: [
+            {
+              key: "k",
+              namespace: "ns",
+              // Server has an extra lang → server-only change → would
+              // normally trigger the local-file rewrite.
+              value_json: { en_us: "same", es_es: "nuevo" },
+              updated_at: "2026-01-01T00:00:00Z",
+            },
+          ],
+          languages: ["en_us", "es_es"],
+          namespaces: [],
+        }) // pull
+        .mockResolvedValueOnce({ estimated_cost: 0 }); // estimate
+
+      await pushCommand.parseAsync(["--strategy", "theirs"], { from: "user" });
+
+      expect(writeMock).not.toHaveBeenCalled();
+      expect(prompts.log.warn).toHaveBeenCalledWith(
+        expect.stringContaining("could not be read"),
+      );
+    });
   });
 
   describe("pull command", () => {

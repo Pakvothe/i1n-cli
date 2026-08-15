@@ -76,6 +76,33 @@ describe("json-nested parser", () => {
     expect(deep?.value_json.en).toBe("World");
   });
 
+  it("preserves parent/child key collisions on write (lossless round trip)", () => {
+    // Server can hold both "errors" and "errors.notFound" — nested JSON
+    // can't nest a value inside a string, so the child is written as a
+    // literal dotted key instead of being silently dropped.
+    jsonNestedParser.write(
+      dir,
+      [
+        { key: "errors", namespace: "common", value_json: { en: "A" } },
+        { key: "errors.notFound", namespace: "common", value_json: { en: "B" } },
+      ],
+      [{ code: "en", name: "English" }],
+    );
+
+    const written = JSON.parse(
+      fs.readFileSync(path.join(dir, "en/common.json"), "utf-8"),
+    );
+    expect(written["errors"]).toBe("A");
+    expect(written["errors.notFound"]).toBe("B");
+
+    // Round trip: reading back yields the same two flat keys.
+    const { wordings } = jsonNestedParser.read(dir, "en");
+    expect(findWording(wordings, "errors", "common")?.value_json.en).toBe("A");
+    expect(
+      findWording(wordings, "errors.notFound", "common")?.value_json.en,
+    ).toBe("B");
+  });
+
   it("handles multiple namespaces", () => {
     writeFile(path.join(dir, "en/common.json"), JSON.stringify({ ok: "OK" }));
     writeFile(

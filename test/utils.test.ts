@@ -17,6 +17,7 @@ import {
   getChangedWordings,
   diffThreeWay,
   buildNextState,
+  revertUnappliedServerOnly,
   type PushStateV2,
 } from "../src/shared/push-state.js";
 import {
@@ -696,6 +697,84 @@ describe("buildNextState", () => {
     ];
     const next = buildNextState(serverWordings, {});
     expect(next.wordings["ns:k"].values).toEqual({ en_us: "x" });
+  });
+});
+
+describe("revertUnappliedServerOnly", () => {
+  // The full data-loss sequence this rollback prevents:
+  // pull (baseline t1) → dashboard edits "greeting" on server (t2) →
+  // push where the server-only write-back to local files is SKIPPED
+  // (parse warnings). If the state advanced to the server's value, the
+  // NEXT push would see L≠S, L≠P, S==P → misclassify the stale local
+  // value as a fresh local edit and silently revert the dashboard edit.
+  it("keeps the old baseline for skipped server-only pairs so the next run re-derives serverOnly", () => {
+    const prev: PushStateV2 = {
+      version: 2,
+      wordings: {
+        "ns:greeting": {
+          values: { en_us: "Hello" },
+          updated_at: "2026-05-12T10:00:00Z", // t1
+        },
+      },
+    };
+    const serverNow: Wording[] = [
+      {
+        key: "greeting",
+        namespace: "ns",
+        value_json: { en_us: "Hello there" }, // dashboard edit
+        updated_at: "2026-05-12T11:00:00Z", // t2
+      },
+    ];
+    // Run 1: diff classifies it as serverOnly...
+    const diff1 = diffThreeWay(
+      [{ key: "greeting", namespace: "ns", value_json: { en_us: "Hello" } }],
+      serverNow,
+      prev,
+    );
+    expect(diff1.serverOnly.length).toBe(1);
+
+    // ...but the local write-back was skipped → roll the state back.
+    const next = buildNextState(serverNow, {});
+    revertUnappliedServerOnly(next, diff1.serverOnly, prev);
+    expect(next.wordings["ns:greeting"].values.en_us).toBe("Hello");
+    expect(next.wordings["ns:greeting"].updated_at).toBe(
+      "2026-05-12T10:00:00Z",
+    );
+
+    // Run 2 (local files still stale): the diff must classify the pair
+    // as serverOnly AGAIN — never as a local edit.
+    const diff2 = diffThreeWay(
+      [{ key: "greeting", namespace: "ns", value_json: { en_us: "Hello" } }],
+      serverNow,
+      next,
+    );
+    expect(diff2.toPush.length).toBe(0);
+    expect(diff2.conflicts.length).toBe(0);
+    expect(diff2.serverOnly.length).toBe(1);
+    expect(diff2.serverOnly[0].value).toBe("Hello there");
+  });
+
+  it("removes langs the previous baseline never had, and downgrades updated_at when the prev entry is missing", () => {
+    const prev: PushStateV2 = { version: 2, wordings: {} };
+    const serverNow: Wording[] = [
+      {
+        key: "k",
+        namespace: "ns",
+        value_json: { en_us: "x", es_ar: "y" },
+        updated_at: "2026-05-12T11:00:00Z",
+      },
+    ];
+    const next = buildNextState(serverNow, {});
+    revertUnappliedServerOnly(
+      next,
+      [
+        { namespace: "ns", key: "k", lang: "es_ar", value: "y", previous: undefined },
+      ],
+      prev,
+    );
+    expect(next.wordings["ns:k"].values).toEqual({ en_us: "x" });
+    // Missing prev entry → timestamp mismatch forces a full pull next run.
+    expect(next.wordings["ns:k"].updated_at).toBeUndefined();
   });
 });
 

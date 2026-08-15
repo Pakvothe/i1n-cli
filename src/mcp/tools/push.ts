@@ -257,6 +257,9 @@ export async function handlePush() {
     Wording & { expected_updated_at?: string }
   >();
   for (const item of diff.toPush) {
+    // Empty strings are never pushed (the server skips them; recording
+    // them as synced would poison the state baseline).
+    if (item.value === "") continue;
     const k = `${item.namespace}:${item.key}`;
     let w = payloadByKey.get(k);
     if (!w) {

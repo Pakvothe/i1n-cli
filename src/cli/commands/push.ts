@@ -11,6 +11,7 @@ import {
   buildNextState,
   diffThreeWay,
   readPushState,
+  revertUnappliedServerOnly,
   writePushState,
   type Conflict,
   type DiffResult,
@@ -71,9 +72,13 @@ async function resolveConflictsInteractive(
     const heading = `Conflict ${i + 1}/${conflicts.length}: ${c.namespace}.${c.key} [${c.lang}]`;
     const choice = await p.select<string>({
       message: heading,
+      // Server first: it's the shared source of truth, and the first
+      // option is what an enter-mashing user ends up picking. "Keep
+      // local" used to be first, which made stale local copies silently
+      // overwrite teammates' dashboard edits.
       options: [
-        { value: "local", label: `Keep local: "${truncate(c.local, 80)}"` },
         { value: "server", label: `Accept server: "${truncate(c.server, 80)}"` },
+        { value: "local", label: `Keep local: "${truncate(c.local, 80)}"` },
         { value: "abort", label: "Abort push" },
       ],
     });
@@ -347,7 +352,12 @@ export const pushCommand = new Command("push")
     const exceededLangs = new Set<string>();
 
     if (newLangs.length > limits.languages.remaining_slots) {
-      // Only allow up to remaining_slots new languages
+      // Only allow up to remaining_slots new languages. IMPORTANT: we do
+      // NOT strip the exceeded langs from `wordings` — that array is the
+      // in-memory mirror of the user's local files and is later used to
+      // rewrite them (applyServerOnlyToLocalFiles). Mutating it here
+      // would silently delete local data. Instead, `exceededLangs` is
+      // filtered out of the push payload after the diff.
       const allowed = new Set(
         newLangs.slice(0, limits.languages.remaining_slots),
       );
@@ -355,33 +365,10 @@ export const pushCommand = new Command("push")
         if (!allowed.has(lang)) exceededLangs.add(lang);
       }
 
-      // Strip exceeded languages from wordings
-      for (const wording of wordings) {
-        for (const lang of exceededLangs) {
-          delete wording.value_json[lang];
-        }
-      }
-
       p.log.warn(
         `Language limit reached (${limits.languages.used.length}/${limits.languages.limit}). ` +
-          `Skipping: ${[...exceededLangs].join(", ")}. Upgrade your plan to add more languages.`,
+          `Not pushing: ${[...exceededLangs].join(", ")} (local files untouched). Upgrade your plan to add more languages.`,
       );
-    }
-
-    // Check wording limit: cap at remaining capacity
-    const wordingCapacity = limits.wordings.limit - limits.wordings.used;
-    if (wordings.length > wordingCapacity && wordingCapacity >= 0) {
-      const excess = wordings.length - wordingCapacity;
-      wordings.splice(wordingCapacity);
-      p.log.warn(
-        `Wording limit reached (${limits.wordings.used}/${limits.wordings.limit}). ` +
-          `Pushing ${wordingCapacity} keys, skipping ${excess}. Upgrade your plan to increase the limit.`,
-      );
-    }
-
-    if (wordings.length === 0) {
-      p.outro("No keys to push after validation.");
-      return;
     }
 
     // ────────────────────────────────────────────────────────────────
@@ -532,21 +519,74 @@ export const pushCommand = new Command("push")
         p.outro("Push aborted.");
         return;
       } else if (strategy === "interactive" && process.stdout.isTTY) {
-        const resolution = await resolveConflictsInteractive(diff.conflicts);
-        if (resolution === "abort") {
-          p.outro("Push aborted.");
-          return;
-        }
-        for (const c of resolution.localWins) {
-          resolvedToPush.push({
-            namespace: c.namespace, key: c.key, lang: c.lang, value: c.local,
+        // Fresh-machine guard: with no push state, EVERY local/server
+        // divergence surfaces as a conflict, which used to produce a wall
+        // of per-item prompts. Offer a bulk resolution first, defaulting
+        // to the server (the shared source of truth).
+        let bulkMode: string | null = null;
+        if (diff.stateWasEmpty && diff.conflicts.length > 1) {
+          const bulk = await p.select<string>({
+            message:
+              `First sync on this machine: ${diff.conflicts.length} value(s) differ between your local files and the server. ` +
+              `Your local copy may simply be out of date.`,
+            options: [
+              {
+                value: "theirs",
+                label: "Accept server for all (recommended)",
+                hint: "updates your local files, pushes nothing stale",
+              },
+              { value: "review", label: "Review each conflict one by one" },
+              {
+                value: "ours",
+                label: "Keep local for all",
+                hint: "overwrites server values — may undo teammates' edits",
+              },
+              { value: "abort", label: "Abort push" },
+            ],
           });
+          if (p.isCancel(bulk) || bulk === "abort") {
+            p.outro("Push aborted.");
+            return;
+          }
+          bulkMode = bulk === "review" ? null : bulk;
         }
-        for (const c of resolution.serverWins) {
-          resolvedServerOnly.push({
-            namespace: c.namespace, key: c.key, lang: c.lang,
-            value: c.server, previous: c.base,
-          });
+
+        if (bulkMode === "theirs") {
+          for (const c of diff.conflicts) {
+            resolvedServerOnly.push({
+              namespace: c.namespace, key: c.key, lang: c.lang,
+              value: c.server, previous: c.base,
+            });
+          }
+          p.log.info(
+            `${diff.conflicts.length} conflicts resolved by accepting server values.`,
+          );
+        } else if (bulkMode === "ours") {
+          for (const c of diff.conflicts) {
+            resolvedToPush.push({
+              namespace: c.namespace, key: c.key, lang: c.lang, value: c.local,
+            });
+          }
+          p.log.warn(
+            `${diff.conflicts.length} conflicts resolved by overwriting server with local.`,
+          );
+        } else {
+          const resolution = await resolveConflictsInteractive(diff.conflicts);
+          if (resolution === "abort") {
+            p.outro("Push aborted.");
+            return;
+          }
+          for (const c of resolution.localWins) {
+            resolvedToPush.push({
+              namespace: c.namespace, key: c.key, lang: c.lang, value: c.local,
+            });
+          }
+          for (const c of resolution.serverWins) {
+            resolvedServerOnly.push({
+              namespace: c.namespace, key: c.key, lang: c.lang,
+              value: c.server, previous: c.base,
+            });
+          }
         }
       } else {
         // Non-TTY with no explicit strategy — refuse silently.
@@ -562,7 +602,22 @@ export const pushCommand = new Command("push")
     // ────────────────────────────────────────────────────────────────
     // Auto-pull server-only changes to local files
     // ────────────────────────────────────────────────────────────────
-    if (resolvedServerOnly.length > 0) {
+    // Server-only changes that never reached the local files (write-back
+    // skipped or failed). Their baseline must NOT advance in the state
+    // file, or the next run would misread the stale local value as a
+    // fresh local edit and silently overwrite the server.
+    let serverOnlyUnapplied: ServerOnlyChange[] = [];
+
+    if (resolvedServerOnly.length > 0 && warnings.length > 0) {
+      serverOnlyUnapplied = resolvedServerOnly;
+      // A locale file failed to parse, so `wordings` is an INCOMPLETE
+      // mirror of the local files. Rewriting from it would destroy the
+      // keys of the unparsed file(s). Never touch local files in that
+      // state — the push itself is still safe (it never deletes).
+      p.log.warn(
+        `Skipped writing ${resolvedServerOnly.length} server-side change(s) to local files because some locale files could not be read (see warnings above). Fix them and run \`i1n pull\`.`,
+      );
+    } else if (resolvedServerOnly.length > 0) {
       const soSpinner = p.spinner();
       soSpinner.start(
         `Auto-pulling ${resolvedServerOnly.length} server-only change(s) to local files...`,
@@ -578,6 +633,7 @@ export const pushCommand = new Command("push")
           `Wrote ${resolvedServerOnly.length} update(s) to locale files`,
         );
       } catch (err) {
+        serverOnlyUnapplied = resolvedServerOnly;
         soSpinner.stop("Auto-pull failed.");
         p.log.warn(
           `Could not write server-only updates to disk: ${err instanceof Error ? err.message : String(err)}`,
@@ -586,13 +642,69 @@ export const pushCommand = new Command("push")
       }
     }
 
+    // Single choke-point for state writes so the unapplied-server-only
+    // rollback is never forgotten on any path.
+    const writeStateFile = (
+      pushed: Record<string, Record<string, string>>,
+    ): void => {
+      const next = buildNextState(serverWordings, pushed);
+      revertUnappliedServerOnly(next, serverOnlyUnapplied, state);
+      writePushState(next, config.localesDir);
+    };
+
     // ────────────────────────────────────────────────────────────────
     // Build the push payload and execute
     // ────────────────────────────────────────────────────────────────
-    if (resolvedToPush.length === 0) {
+    // Plan-limit filtering happens HERE, on the payload only — never on
+    // the `wordings` array (local-file mirror). See the language-limit
+    // comment above.
+    let pushItems = resolvedToPush.filter((i) => !exceededLangs.has(i.lang));
+
+    // Empty strings are never pushed: the server skips them anyway (an
+    // empty value would blank a teammate's translation via the merge),
+    // and sending them would poison the local state file by recording
+    // "" as synced. Filtering here keeps the state honest — the empty
+    // value simply resurfaces in this warning on every push.
+    const emptyCount = pushItems.filter((i) => i.value === "").length;
+    if (emptyCount > 0) {
+      pushItems = pushItems.filter((i) => i.value !== "");
+      p.log.warn(
+        `${emptyCount} empty value(s) not pushed — empty strings never overwrite server translations. Edit or delete them in the dashboard instead.`,
+      );
+    }
+
+    // New-key capacity: `limits.wordings.used` counts every existing key
+    // in the org, so only keys that don't exist on the server yet consume
+    // capacity. Updates to existing keys always go through. (The server's
+    // wording-limit trigger stays the hard cap.)
+    const serverKeySet = new Set(
+      serverWordings.map((w) => `${w.namespace}:${w.key}`),
+    );
+    const newKeySet = new Set(
+      pushItems
+        .map((i) => `${i.namespace}:${i.key}`)
+        .filter((k) => !serverKeySet.has(k)),
+    );
+    const wordingCapacity = Math.max(
+      0,
+      limits.wordings.limit - limits.wordings.used,
+    );
+    if (newKeySet.size > wordingCapacity) {
+      const allowedNew = new Set([...newKeySet].slice(0, wordingCapacity));
+      const skippedNew = newKeySet.size - wordingCapacity;
+      pushItems = pushItems.filter((i) => {
+        const k = `${i.namespace}:${i.key}`;
+        return serverKeySet.has(k) || allowedNew.has(k);
+      });
+      p.log.warn(
+        `Wording limit reached (${limits.wordings.used}/${limits.wordings.limit}). ` +
+          `Pushing updates to existing keys; skipping ${skippedNew} new key(s). Upgrade your plan to increase the limit.`,
+      );
+    }
+
+    if (pushItems.length === 0) {
       // Nothing to push, but state should advance so next push is fast.
-      const nextState = buildNextState(serverWordings, {});
-      writePushState(nextState, config.localesDir);
+      writeStateFile({});
 
       if (diff.serverOnly.length === 0 && diff.conflicts.length === 0) {
         p.log.info("No changes to push.");
@@ -603,8 +715,18 @@ export const pushCommand = new Command("push")
       // Group toPush by (ns, key); each wording carries only the langs
       // that actually changed. expected_updated_at comes from state P
       // for optimistic-concurrency on the server.
+      // expected_updated_at comes from the FRESH server snapshot (which
+      // the three-way diff just validated against), falling back to the
+      // state baseline. Using the state's timestamp caused phantom
+      // conflicts: after a push, the state keeps the pre-push timestamp,
+      // so the next push of the same key always looked stale.
+      const serverUpdatedAtByKey = new Map<string, string | undefined>();
+      for (const sw of serverWordings) {
+        serverUpdatedAtByKey.set(`${sw.namespace}:${sw.key}`, sw.updated_at);
+      }
+
       const payloadByKey = new Map<string, Wording & { expected_updated_at?: string }>();
-      for (const item of resolvedToPush) {
+      for (const item of pushItems) {
         const k = `${item.namespace}:${item.key}`;
         let w = payloadByKey.get(k);
         if (!w) {
@@ -613,7 +735,8 @@ export const pushCommand = new Command("push")
             namespace: item.namespace,
             key: item.key,
             value_json: {},
-            expected_updated_at: stateEntry?.updated_at,
+            expected_updated_at:
+              serverUpdatedAtByKey.get(k) ?? stateEntry?.updated_at,
           };
           payloadByKey.set(k, w);
         }
@@ -670,8 +793,7 @@ export const pushCommand = new Command("push")
           }
           // Atomic state write per successful batch — protects against
           // mid-loop crashes leaving the next push to re-send everything.
-          const partialState = buildNextState(serverWordings, pushedPerKeyLang);
-          writePushState(partialState, config.localesDir);
+          writeStateFile(pushedPerKeyLang);
         } catch (err) {
           pushSpinner.stop("Push failed.");
           p.log.error(err instanceof Error ? err.message : "Unknown error");
@@ -694,8 +816,7 @@ export const pushCommand = new Command("push")
       }
 
       // Final state write — captures the full post-push baseline.
-      const nextState = buildNextState(serverWordings, pushedPerKeyLang);
-      writePushState(nextState, config.localesDir);
+      writeStateFile(pushedPerKeyLang);
     }
 
     // Parse --translate flag for target languages
