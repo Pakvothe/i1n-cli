@@ -315,7 +315,7 @@ export async function handlePush() {
   >();
   const serverKeySet = new Set(serverWordings.map((w) => `${w.namespace}:${w.key}`));
   const newKeysAllowed = new Set<string>();
-  let skippedNewKeys = 0;
+  const skippedNewKeySet = new Set<string>();
   for (const item of diff.toPush) {
     // Empty strings are never pushed (the server skips them; recording
     // them as synced would poison the state baseline).
@@ -325,7 +325,7 @@ export async function handlePush() {
     const nsKey = `${item.namespace}:${item.key}`;
     if (!serverKeySet.has(nsKey) && !newKeysAllowed.has(nsKey)) {
       if (newKeysAllowed.size >= wordingCapacity) {
-        skippedNewKeys++;
+        skippedNewKeySet.add(nsKey);
         continue;
       }
       newKeysAllowed.add(nsKey);
@@ -346,19 +346,21 @@ export async function handlePush() {
 
   const payload = Array.from(payloadByKey.values());
   const pushedPerKeyLang: Record<string, Record<string, string>> = {};
-  if (skippedNewKeys > 0) {
+  if (skippedNewKeySet.size > 0) {
     messages.push(
-      `Warning: Wording limit reached (${limits.wordings.used}/${limits.wordings.limit}). Skipped ${skippedNewKeys} new key(s); updates to existing keys were pushed.`,
+      `Warning: Wording limit reached (${limits.wordings.used}/${limits.wordings.limit}). Skipped ${skippedNewKeySet.size} new key(s); updates to existing keys were pushed.`,
     );
   }
 
   // Single choke point for state writes: never advance the baseline (nor the
-  // constants snapshot) for server-only changes that did not reach disk.
+  // constants snapshot) while any file still holds an old expansion — i.e.
+  // until server-only write-back and the pushed-values refresh both succeeded.
+  let constantsSynced = false;
   const writeStateFile = (pushed: Record<string, Record<string, string>>): void => {
     const constantsInfo =
-      serverOnlyUnapplied.length > 0
-        ? { constants: snapshotConstants, hash: state.constants_hash }
-        : { constants: currentConstants, hash: currentConstantsHash };
+      constantsSynced && serverOnlyUnapplied.length === 0
+        ? { constants: currentConstants, hash: currentConstantsHash }
+        : { constants: snapshotConstants, hash: state.constants_hash };
     const next = buildNextState(serverWordings, pushed, constantsInfo);
     revertUnappliedServerOnly(next, serverOnlyUnapplied, state);
     writePushState(next, config.localesDir);
@@ -366,6 +368,7 @@ export async function handlePush() {
 
   if (payload.length === 0) {
     // No push needed but advance state to reflect freshly synced baseline.
+    constantsSynced = true;
     writeStateFile({});
     if (warnings.length > 0) {
       messages.push("Parse warnings:");
@@ -415,24 +418,31 @@ export async function handlePush() {
     return error(err instanceof Error ? err.message : "Push failed");
   }
 
-  writeStateFile(pushedPerKeyLang);
-
   // Refresh expansions of pushed values that reference constants (see CLI push).
   const rewrites = pushedConstantRewrites(pushedPerKeyLang);
-  if (rewrites.length > 0 && warnings.length === 0) {
+  if (rewrites.length === 0) {
+    constantsSynced = true;
+  } else if (warnings.length === 0) {
     try {
-      applyServerOnlyToLocalFiles(
-        expandForWrite(rewrites, currentConstants).changes,
-        wordings,
-        config.localesDir,
-        parser,
-      );
+      const prepared = expandForWrite(rewrites, currentConstants);
+      if (prepared.missing.length > 0) {
+        messages.push(
+          `Warning: undefined constant(s) ${prepared.missing.map((n) => `{@${n}}`).join(", ")} in pushed values were written as literal markers.`,
+        );
+      }
+      applyServerOnlyToLocalFiles(prepared.changes, wordings, config.localesDir, parser);
+      constantsSynced = true;
     } catch (err) {
       messages.push(
         `Warning: could not refresh constant expansions in local files: ${err instanceof Error ? err.message : String(err)}. Run i1n pull.`,
       );
     }
+  } else {
+    messages.push(
+      "Warning: constant expansions in local files were not refreshed because some locale files could not be read. Run i1n pull after fixing them.",
+    );
   }
+  writeStateFile(pushedPerKeyLang);
 
   messages.push(
     `Push complete: ${totalCreated} created, ${totalUpdated} updated.`,

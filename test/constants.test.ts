@@ -193,3 +193,12 @@ describe("constants: review regressions", () => {
     expect(r.missing).toEqual(["NOPE"]);
   });
 });
+
+describe("constants: swapped values", () => {
+  it("untouched file contracts correctly when two constants swapped values server-side", () => {
+    const server: Wording[] = [{ namespace: "c", key: "k", value_json: { en: "{@A} {@B}" } }];
+    const local: Wording[] = [{ namespace: "c", key: "k", value_json: { en: "USD EUR" } }];
+    const out = contractWordings(local, server, { "c:k": { en: "{@A} {@B}" } }, { A: "USD", B: "EUR" }, { A: "EUR", B: "USD" });
+    expect(out[0].value_json.en).toBe("{@A} {@B}");
+  });
+});
