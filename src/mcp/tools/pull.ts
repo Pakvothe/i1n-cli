@@ -15,8 +15,12 @@ export async function handlePull() {
       return text("No translations found in this project. Add translations in the dashboard first, then pull again.");
     }
 
+    const warning =
+      result.missingConstants.length > 0
+        ? ` Warning: undefined constant(s) ${result.missingConstants.map((n) => `{@${n}}`).join(", ")} were written as literal markers — define them in the dashboard (Settings → AI Context → Constants) and pull again.`
+        : "";
     return text(
-      `Pull complete: ${result.wordings} keys across ${result.languages} languages written. TypeScript types generated.`,
+      `Pull complete: ${result.wordings} keys across ${result.languages} languages written. TypeScript types generated.${warning}`,
     );
   } catch (err) {
     return error(err instanceof Error ? err.message : "Pull failed");

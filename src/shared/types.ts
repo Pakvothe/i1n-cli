@@ -107,12 +107,22 @@ export interface RevisionEntry {
  * tiny even for projects with thousands of keys. */
 export interface PullRevisionsResponse {
   revisions: RevisionEntry[];
+  /** Fingerprint of the constants map; a change here is drift even if no wording changed. */
+  constants_hash?: string;
 }
 
 export interface PullResponse {
   wordings: Wording[];
   languages: Language[];
   namespaces: { name: string; description?: string }[];
+  /**
+   * Project constants (NAME → value). Present when the client asked for
+   * `raw_constants` (this CLI always does): wording values then contain
+   * `{@NAME}` markers that the CLI expands into the locale files. Servers
+   * older than 2026-09 omit both fields and never send markers.
+   */
+  constants?: Record<string, string>;
+  constants_hash?: string;
 }
 
 export interface TranslateResponse {
@@ -161,6 +171,7 @@ export type TonePreset =
 export interface ProjectSettingsResponse {
   tone_preset: TonePreset;
   brand_voice: string | null;
+  constants?: Record<string, string>;
 }
 
 export interface ProjectLimitsResponse {

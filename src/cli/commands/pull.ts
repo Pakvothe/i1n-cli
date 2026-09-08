@@ -6,6 +6,7 @@ import { readProjectConfig } from "../../shared/config.js";
 import { callCliSync } from "../../shared/supabase.js";
 import { getParser } from "../../parsers/index.js";
 import { generateTypeDefinitions } from "../../shared/codegen.js";
+import { expandWordings } from "../../shared/constants.js";
 import { buildNextState, writePushState } from "../../shared/push-state.js";
 import { ensureConfigInclude } from "../../shared/tsconfig.js";
 import type { I1nProjectConfig } from "../../shared/types.js";
@@ -16,25 +17,32 @@ import type { I1nProjectConfig } from "../../shared/types.js";
  */
 export async function executePull(
   config: I1nProjectConfig,
-): Promise<{ wordings: number; languages: number }> {
+): Promise<{ wordings: number; languages: number; missingConstants: string[] }> {
+  // raw_constants: receive `{@NAME}` markers + the constants map and expand
+  // here, so `push` can contract edited files back to markers. Servers that
+  // predate constants ignore the flag and send plain values.
   const result = await callCliSync(
     "pull",
-    { project_id: config.projectId },
+    { project_id: config.projectId, raw_constants: true },
     config.apiKey,
   );
 
   const { wordings, languages } = result;
+  const constants = result.constants ?? null;
+  const constantsHash = result.constants_hash;
 
   if (wordings.length === 0) {
-    return { wordings: 0, languages: 0 };
+    return { wordings: 0, languages: 0, missingConstants: [] };
   }
 
-  // Write locale files
+  // Write locale files with constants expanded. `wordings` (markers) stays
+  // untouched: it is the server baseline for the push state and codegen.
   const parser = getParser(config.format);
   const langObjects = languages.map((l: any) =>
     typeof l === "string" ? { code: l, name: l } : l,
   );
-  parser.write(config.localesDir, wordings, langObjects);
+  const expanded = expandWordings(wordings, constants);
+  parser.write(config.localesDir, expanded.wordings, langObjects);
 
   // Generate type definitions
   const typeDefs = generateTypeDefinitions(wordings, config.sourceLocale);
@@ -46,12 +54,19 @@ export async function executePull(
   // server snapshot as its baseline. State v2 carries per-language
   // values + per-key updated_at, enabling the three-way diff and
   // optimistic-concurrency token forwarding.
-  writePushState(buildNextState(wordings, {}), config.localesDir);
+  writePushState(
+    buildNextState(wordings, {}, { constants, hash: constantsHash }),
+    config.localesDir,
+  );
 
   // Ensure IDE finds the types (DX automation)
   ensureConfigInclude(config.localesDir);
 
-  return { wordings: wordings.length, languages: languages.length };
+  return {
+    wordings: wordings.length,
+    languages: languages.length,
+    missingConstants: expanded.missing,
+  };
 }
 
 export const pullCommand = new Command("pull")
@@ -86,6 +101,13 @@ export const pullCommand = new Command("pull")
     spinner.stop(
       `${result.wordings} keys across ${result.languages} languages written`,
     );
+
+    if (result.missingConstants.length > 0) {
+      p.log.warn(
+        `Undefined constant(s) referenced by wordings: ${result.missingConstants.map((n) => `{@${n}}`).join(", ")}. ` +
+          "They were written as literal markers. Define them in the dashboard (Settings → AI Context → Constants) and pull again.",
+      );
+    }
 
     p.outro("Done!");
   });

@@ -6,6 +6,11 @@ import { Command } from "commander";
 import * as p from "@clack/prompts";
 import { readProjectConfig } from "../../shared/config.js";
 import { callCliSync } from "../../shared/supabase.js";
+import {
+  contractWordings,
+  expandConstants,
+  staleConstantRefs,
+} from "../../shared/constants.js";
 import { getParser } from "../../parsers/index.js";
 import {
   buildNextState,
@@ -377,6 +382,13 @@ export const pushCommand = new Command("push")
     const state = readPushState(config.localesDir);
     const stateEmpty = Object.keys(state.wordings).length === 0;
 
+    // Constants: local files hold EXPANDED values; server and state hold
+    // `{@NAME}` markers. `snapshot` = the map expanded into the files at the
+    // last sync; `currentConstants` = the server's map now.
+    const snapshotConstants = state.constants ?? null;
+    let currentConstants: Record<string, string> | null = snapshotConstants;
+    let currentConstantsHash: string | undefined = state.constants_hash;
+
     // Step 1: cheap drift check. If state is empty we must fetch full S.
     // Otherwise, ask the server for just (namespace, key, updated_at) per
     // wording and compare against the timestamps we recorded last sync.
@@ -387,7 +399,7 @@ export const pushCommand = new Command("push")
       const driftSpinner = p.spinner();
       driftSpinner.start("Checking for server-side changes...");
       try {
-        const { revisions } = await callCliSync(
+        const { revisions, constants_hash } = await callCliSync(
           "pull-revisions",
           { project_id: config.projectId },
           config.apiKey,
@@ -397,6 +409,11 @@ export const pushCommand = new Command("push")
           serverKeyMap.set(`${r.namespace}:${r.key}`, r.updated_at);
         }
         const stateKeys = Object.keys(state.wordings);
+        // A constant edit changes no wording timestamp but makes every
+        // expanded file stale, so it counts as drift too.
+        if ((constants_hash ?? "") !== (state.constants_hash ?? "")) {
+          needFullPull = true;
+        }
         // Drift if: any new server key, any deleted server key, or any
         // updated_at mismatch on a known key.
         if (serverKeyMap.size !== stateKeys.length) {
@@ -431,10 +448,12 @@ export const pushCommand = new Command("push")
       try {
         const pullResult: PullResponse = await callCliSync(
           "pull",
-          { project_id: config.projectId },
+          { project_id: config.projectId, raw_constants: true },
           config.apiKey,
         );
         serverWordings = pullResult.wordings;
+        currentConstants = pullResult.constants ?? null;
+        currentConstantsHash = pullResult.constants_hash;
         pullSpinner.stop(
           `Fetched ${serverWordings.length} keys from server`,
         );
@@ -458,7 +477,32 @@ export const pushCommand = new Command("push")
       });
     }
 
-    const diff: DiffResult = diffThreeWay(wordings, serverWordings, state);
+    // Contract the expanded local files back to markers so the diff compares
+    // like with like. `wordings` (expanded) stays as the local-file mirror
+    // used when writing server-side changes back to disk.
+    const baselineValues: Record<string, Record<string, string>> = {};
+    for (const [k, entry] of Object.entries(state.wordings)) baselineValues[k] = entry.values;
+    const contractedLocal = contractWordings(
+      wordings,
+      serverWordings,
+      baselineValues,
+      snapshotConstants,
+      currentConstants,
+    );
+
+    const diff: DiffResult = diffThreeWay(contractedLocal, serverWordings, state);
+
+    // Files whose constants changed value since they were expanded are stale
+    // even if the wording is unchanged: rewrite them as server-only changes.
+    const touched = new Set<string>(
+      [...diff.toPush, ...diff.conflicts, ...diff.serverOnly].map(
+        (c) => `${c.namespace}:${c.key}:${c.lang}`,
+      ),
+    );
+    for (const s of staleConstantRefs(serverWordings, snapshotConstants, currentConstants)) {
+      if (touched.has(`${s.namespace}:${s.key}:${s.lang}`)) continue;
+      diff.serverOnly.push({ namespace: s.namespace, key: s.key, lang: s.lang, value: s.value, previous: s.value });
+    }
 
     // Filter local-deletion warnings to those NOT explained by plan-trim.
     const realLocalDeletions = diff.localDeletions.filter(
@@ -623,8 +667,12 @@ export const pushCommand = new Command("push")
         `Auto-pulling ${resolvedServerOnly.length} server-only change(s) to local files...`,
       );
       try {
+        // Server values carry markers; files get them expanded.
         applyServerOnlyToLocalFiles(
-          resolvedServerOnly,
+          resolvedServerOnly.map((c) => ({
+            ...c,
+            value: expandConstants(c.value, currentConstants).text,
+          })),
           wordings,
           config.localesDir,
           parser,
@@ -647,7 +695,14 @@ export const pushCommand = new Command("push")
     const writeStateFile = (
       pushed: Record<string, Record<string, string>>,
     ): void => {
-      const next = buildNextState(serverWordings, pushed);
+      // If server-only changes did not reach the files, the files still hold
+      // the OLD constant expansions: keep the old snapshot/hash so the next
+      // run detects the drift again instead of misreading them as edits.
+      const constantsInfo =
+        serverOnlyUnapplied.length > 0
+          ? { constants: snapshotConstants, hash: state.constants_hash }
+          : { constants: currentConstants, hash: currentConstantsHash };
+      const next = buildNextState(serverWordings, pushed, constantsInfo);
       revertUnappliedServerOnly(next, serverOnlyUnapplied, state);
       writePushState(next, config.localesDir);
     };
