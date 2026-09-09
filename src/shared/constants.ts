@@ -59,46 +59,30 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export type ContractValues = Record<string, string | string[]>;
-
 export function contractConstants(
   text: string,
   names: Iterable<string>,
-  constants: ContractValues | null | undefined,
+  constants: Constants | null | undefined,
 ): string {
   if (!text || !constants) return text;
-  // Every candidate literal → its name. A name may carry several values (the
-  // snapshot expanded into the file, then the current server value) so a
-  // user who retypes the NEW literal after a server-side change still
-  // round-trips. First name wins on a value collision (values are also
-  // required to be unique by the server/editor).
-  const byValue = new Map<string, string>();
-  for (const name of new Set(names)) {
-    const raw = constants[name];
-    const vals = Array.isArray(raw) ? raw : raw === undefined ? [] : [raw];
-    for (const v of vals) {
-      if (typeof v === "string" && v.length > 0 && !byValue.has(v)) byValue.set(v, name);
-    }
-  }
-  if (byValue.size === 0) return text;
+  const ordered = [...new Set(names)]
+    .filter(n => typeof constants[n] === "string" && constants[n].length > 0)
+    .sort((a, b) => constants[b].length - constants[a].length);
+  if (ordered.length === 0) return text;
 
-  // Single pass over marker-free segments: existing markers are split out
-  // first and preserved verbatim, so a value can never eat the opening brace
-  // of a marker nor be re-contracted inside one we just produced. Values are
-  // tried longest first at each position.
-  const ordered = [...byValue.keys()].sort((x, y) => y.length - x.length);
-  const valueRe = new RegExp(ordered.map(escapeRegExp).join("|"), "g");
-  const markerSplit = new RegExp(`(${CONSTANT_REF_RE.source})`, "g");
-  return text
-    .split(markerSplit)
-    .map((segment, i) =>
-      i % 3 === 1
-        ? segment // marker (odd index of the capture split)
-        : i % 3 === 2
-          ? "" // inner capture group of the marker (name) — already part of segment 1
-          : segment.replace(valueRe, v => `{@${byValue.get(v)!}}`),
-    )
-    .join("");
+  // Single pass: existing markers are matched first and preserved, so a
+  // value that happens to appear inside a marker we just produced (USD
+  // inside {@USDT}) can never be re-contracted. Values are tried longest
+  // first at each position.
+  const byValue = new Map<string, string>();
+  for (const name of ordered) byValue.set(constants[name], name);
+  const alternation = ordered.map(n => escapeRegExp(constants[n])).join("|");
+  const re = new RegExp(`(\\{@[A-Z][A-Z0-9_]{0,63}\\})|(${alternation})`, "g");
+  return text.replace(re, (match, marker: string | undefined, value: string | undefined) => {
+    if (marker) return marker;
+    const name = value !== undefined ? byValue.get(value) : undefined;
+    return name ? `{@${name}}` : match;
+  });
 }
 
 export interface ExpandedWordings<W extends { value_json: Record<string, string> }> {
@@ -150,15 +134,7 @@ export function contractWordings<W extends { namespace: string; key: string; val
   if (!snapshot && !current) return localWordings;
   const serverIdx = new Map<string, Record<string, string>>();
   for (const s of serverWordings) serverIdx.set(`${s.namespace}:${s.key}`, s.value_json);
-  // Per name: snapshot value first (what the files contain), then the current
-  // server value (what a user may have retyped after a server-side change).
-  const values: ContractValues = {};
-  for (const name of new Set([...Object.keys(snapshot ?? {}), ...Object.keys(current ?? {})])) {
-    const list = [snapshot?.[name], current?.[name]].filter(
-      (v, i, arr): v is string => typeof v === "string" && v.length > 0 && arr.indexOf(v) === i,
-    );
-    if (list.length > 0) values[name] = list;
-  }
+  const values: Constants = { ...(current ?? {}), ...(snapshot ?? {}) };
 
   return localWordings.map(w => {
     const k = `${w.namespace}:${w.key}`;
@@ -202,48 +178,6 @@ export function staleConstantRefs(
       if (typeof val !== "string" || !val.includes("{@")) continue;
       if (referencedConstants(val).some(n => changed.has(n))) {
         out.push({ namespace: w.namespace, key: w.key, lang, value: val });
-      }
-    }
-  }
-  return out;
-}
-
-/**
- * Prepare server-side values (markers) for writing to local files: expand
- * with the current map and report undefined constants so callers can warn
- * instead of silently writing `{@NOPE}` literals.
- */
-export function expandForWrite<C extends { value: string }>(
-  changes: C[],
-  constants: Constants | null | undefined,
-): { changes: C[]; missing: string[] } {
-  const missing = new Set<string>();
-  const out = changes.map(c => {
-    const r = expandConstants(c.value, constants);
-    for (const m of r.missing) missing.add(m);
-    return r.text === c.value ? c : { ...c, value: r.text };
-  });
-  return { changes: out, missing: [...missing] };
-}
-
-/**
- * After a push, every pushed (key, lang) whose contracted value references a
- * constant must be rewritten to disk expanded with the CURRENT map. Otherwise
- * a file edited while a constant changed server-side keeps the OLD expansion
- * while the state snapshot advances, and the next push would misread the
- * stale literal as an edit and overwrite the marker.
- */
-export function pushedConstantRewrites(
-  pushedPerKeyLang: Record<string, Record<string, string>>,
-): Array<{ namespace: string; key: string; lang: string; value: string; previous: string }> {
-  const out: Array<{ namespace: string; key: string; lang: string; value: string; previous: string }> = [];
-  for (const [nsKey, langs] of Object.entries(pushedPerKeyLang)) {
-    const colon = nsKey.indexOf(":");
-    const namespace = nsKey.slice(0, colon);
-    const key = nsKey.slice(colon + 1);
-    for (const [lang, value] of Object.entries(langs)) {
-      if (typeof value === "string" && value.includes("{@")) {
-        out.push({ namespace, key, lang, value, previous: value });
       }
     }
   }

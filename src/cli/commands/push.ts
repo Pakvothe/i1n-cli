@@ -8,8 +8,7 @@ import { readProjectConfig } from "../../shared/config.js";
 import { callCliSync } from "../../shared/supabase.js";
 import {
   contractWordings,
-  expandForWrite,
-  pushedConstantRewrites,
+  expandConstants,
   staleConstantRefs,
 } from "../../shared/constants.js";
 import { getParser } from "../../parsers/index.js";
@@ -669,14 +668,11 @@ export const pushCommand = new Command("push")
       );
       try {
         // Server values carry markers; files get them expanded.
-        const prepared = expandForWrite(resolvedServerOnly, currentConstants);
-        if (prepared.missing.length > 0) {
-          p.log.warn(
-            `Undefined constant(s) ${prepared.missing.map((n) => `{@${n}}`).join(", ")} written as literal markers. Define them in the dashboard (Settings → AI Context → Constants).`,
-          );
-        }
         applyServerOnlyToLocalFiles(
-          prepared.changes,
+          resolvedServerOnly.map((c) => ({
+            ...c,
+            value: expandConstants(c.value, currentConstants).text,
+          })),
           wordings,
           config.localesDir,
           parser,
@@ -876,25 +872,6 @@ export const pushCommand = new Command("push")
 
       // Final state write — captures the full post-push baseline.
       writeStateFile(pushedPerKeyLang);
-
-      // Pushed values that reference constants: rewrite their files expanded
-      // with the CURRENT map, so the disk never keeps an old expansion while
-      // the state snapshot has moved on (that would read as an edit next time).
-      const rewrites = pushedConstantRewrites(pushedPerKeyLang);
-      if (rewrites.length > 0 && warnings.length === 0) {
-        try {
-          applyServerOnlyToLocalFiles(
-            expandForWrite(rewrites, currentConstants).changes,
-            wordings,
-            config.localesDir,
-            parser,
-          );
-        } catch (err) {
-          p.log.warn(
-            `Could not refresh constant expansions in local files: ${err instanceof Error ? err.message : String(err)}. Run \`i1n pull\`.`,
-          );
-        }
-      }
     }
 
     // Parse --translate flag for target languages

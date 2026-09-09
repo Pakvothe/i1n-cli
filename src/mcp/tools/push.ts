@@ -7,7 +7,6 @@ import {
   buildNextState,
   diffThreeWay,
   readPushState,
-  revertUnappliedServerOnly,
   writePushState,
   type Conflict,
   type DiffResult,
@@ -16,8 +15,7 @@ import {
 import { normalizeWordingLanguages } from "../../shared/languages.js";
 import {
   contractWordings,
-  expandForWrite,
-  pushedConstantRewrites,
+  expandConstants,
   staleConstantRefs,
 } from "../../shared/constants.js";
 import { text, error } from "./helpers.js";
@@ -127,17 +125,28 @@ export async function handlePush() {
     for (const lang of newLangs) {
       if (!allowed.has(lang)) exceededLangs.add(lang);
     }
-    // NOTE: the local mirror (`wordings`) is NOT mutated — it is what gets
-    // written back to disk. Exceeded langs are filtered from the payload.
+    for (const wording of wordings) {
+      for (const lang of exceededLangs) {
+        delete wording.value_json[lang];
+      }
+    }
     messages.push(
       `Warning: Language limit reached (${limits.languages.used.length}/${limits.languages.limit}). Skipping: ${[...exceededLangs].join(", ")}.`,
     );
   }
 
-  // New keys beyond the plan's wording capacity are skipped from the payload
-  // below (never by truncating the local mirror, which would drop keys from
-  // the files on write-back).
-  const wordingCapacity = Math.max(0, limits.wordings.limit - limits.wordings.used);
+  const wordingCapacity = limits.wordings.limit - limits.wordings.used;
+  if (wordings.length > wordingCapacity && wordingCapacity >= 0) {
+    const excess = wordings.length - wordingCapacity;
+    wordings.splice(wordingCapacity);
+    messages.push(
+      `Warning: Wording limit reached (${limits.wordings.used}/${limits.wordings.limit}). Pushing ${wordingCapacity} keys, skipping ${excess}.`,
+    );
+  }
+
+  if (wordings.length === 0) {
+    return text("No keys to push after validation.\n" + messages.join("\n"));
+  }
 
   // ── Three-way diff ─────────────────────────────────────────────────
   const state = readPushState(config.localesDir);
@@ -274,25 +283,14 @@ export async function handlePush() {
     return error(messages.join("\n"));
   }
 
-  // Auto-pull server-only changes. Changes that never reach disk must not
-  // advance the state baseline (see revertUnappliedServerOnly), and a mirror
-  // built from files that failed to parse must never be written back.
-  let serverOnlyUnapplied: ServerOnlyChange[] = [];
-  if (diff.serverOnly.length > 0 && warnings.length > 0) {
-    serverOnlyUnapplied = diff.serverOnly;
-    messages.push(
-      `Warning: skipped writing ${diff.serverOnly.length} server-side change(s) to local files because some locale files could not be read. Fix them and run i1n pull.`,
-    );
-  } else if (diff.serverOnly.length > 0) {
+  // Auto-pull server-only changes
+  if (diff.serverOnly.length > 0) {
     try {
-      const prepared = expandForWrite(diff.serverOnly, currentConstants);
-      if (prepared.missing.length > 0) {
-        messages.push(
-          `Warning: undefined constant(s) ${prepared.missing.map((n) => `{@${n}}`).join(", ")} written as literal markers. Define them in the dashboard (Settings → AI Context → Constants).`,
-        );
-      }
       applyServerOnlyToLocalFiles(
-        prepared.changes,
+        diff.serverOnly.map((c) => ({
+          ...c,
+          value: expandConstants(c.value, currentConstants).text,
+        })),
         wordings,
         config.localesDir,
         parser,
@@ -301,7 +299,6 @@ export async function handlePush() {
         `Auto-pulled ${diff.serverOnly.length} server-only change(s) to local files.`,
       );
     } catch (err) {
-      serverOnlyUnapplied = diff.serverOnly;
       messages.push(
         `Warning: Could not write server-only updates to disk: ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -313,23 +310,10 @@ export async function handlePush() {
     string,
     Wording & { expected_updated_at?: string }
   >();
-  const serverKeySet = new Set(serverWordings.map((w) => `${w.namespace}:${w.key}`));
-  const newKeysAllowed = new Set<string>();
-  let skippedNewKeys = 0;
   for (const item of diff.toPush) {
     // Empty strings are never pushed (the server skips them; recording
     // them as synced would poison the state baseline).
     if (item.value === "") continue;
-    // Plan trims apply to the payload only (the local mirror stays intact).
-    if (exceededLangs.has(item.lang)) continue;
-    const nsKey = `${item.namespace}:${item.key}`;
-    if (!serverKeySet.has(nsKey) && !newKeysAllowed.has(nsKey)) {
-      if (newKeysAllowed.size >= wordingCapacity) {
-        skippedNewKeys++;
-        continue;
-      }
-      newKeysAllowed.add(nsKey);
-    }
     const k = `${item.namespace}:${item.key}`;
     let w = payloadByKey.get(k);
     if (!w) {
@@ -346,27 +330,11 @@ export async function handlePush() {
 
   const payload = Array.from(payloadByKey.values());
   const pushedPerKeyLang: Record<string, Record<string, string>> = {};
-  if (skippedNewKeys > 0) {
-    messages.push(
-      `Warning: Wording limit reached (${limits.wordings.used}/${limits.wordings.limit}). Skipped ${skippedNewKeys} new key(s); updates to existing keys were pushed.`,
-    );
-  }
-
-  // Single choke point for state writes: never advance the baseline (nor the
-  // constants snapshot) for server-only changes that did not reach disk.
-  const writeStateFile = (pushed: Record<string, Record<string, string>>): void => {
-    const constantsInfo =
-      serverOnlyUnapplied.length > 0
-        ? { constants: snapshotConstants, hash: state.constants_hash }
-        : { constants: currentConstants, hash: currentConstantsHash };
-    const next = buildNextState(serverWordings, pushed, constantsInfo);
-    revertUnappliedServerOnly(next, serverOnlyUnapplied, state);
-    writePushState(next, config.localesDir);
-  };
 
   if (payload.length === 0) {
     // No push needed but advance state to reflect freshly synced baseline.
-    writeStateFile({});
+    const nextState = buildNextState(serverWordings, {}, { constants: currentConstants, hash: currentConstantsHash });
+    writePushState(nextState, config.localesDir);
     if (warnings.length > 0) {
       messages.push("Parse warnings:");
       for (const w of warnings) {
@@ -409,30 +377,15 @@ export async function handlePush() {
           pushedPerKeyLang[k][lang] = val;
         }
       }
-      writeStateFile(pushedPerKeyLang);
+      const partialState = buildNextState(serverWordings, pushedPerKeyLang, { constants: currentConstants, hash: currentConstantsHash });
+      writePushState(partialState, config.localesDir);
     }
   } catch (err) {
     return error(err instanceof Error ? err.message : "Push failed");
   }
 
-  writeStateFile(pushedPerKeyLang);
-
-  // Refresh expansions of pushed values that reference constants (see CLI push).
-  const rewrites = pushedConstantRewrites(pushedPerKeyLang);
-  if (rewrites.length > 0 && warnings.length === 0) {
-    try {
-      applyServerOnlyToLocalFiles(
-        expandForWrite(rewrites, currentConstants).changes,
-        wordings,
-        config.localesDir,
-        parser,
-      );
-    } catch (err) {
-      messages.push(
-        `Warning: could not refresh constant expansions in local files: ${err instanceof Error ? err.message : String(err)}. Run i1n pull.`,
-      );
-    }
-  }
+  const nextState = buildNextState(serverWordings, pushedPerKeyLang);
+  writePushState(nextState, config.localesDir);
 
   messages.push(
     `Push complete: ${totalCreated} created, ${totalUpdated} updated.`,

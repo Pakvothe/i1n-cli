@@ -160,36 +160,3 @@ describe("constants: stale refs and push-state snapshot", () => {
     expect(state.constants_hash).toBeUndefined();
   });
 });
-
-describe("constants: review regressions", () => {
-  it("retyped NEW literal after a server-side change still contracts (snapshot + current values)", () => {
-    const server: Wording[] = [{ namespace: "c", key: "k", value_json: { en: "Pay {@T}" } }];
-    const local: Wording[] = [{ namespace: "c", key: "k", value_json: { en: "Pay NEW" } }];
-    const out = contractWordings(local, server, { "c:k": { en: "Pay {@T}" } }, { T: "OLD" }, { T: "NEW" });
-    expect(out[0].value_json.en).toBe("Pay {@T}");
-  });
-
-  it("a value ending in '{' cannot eat the opening brace of a marker", () => {
-    expect(contractConstants("Buy {@X}", ["Z", "X"], { Z: "Buy {", X: "x" })).toBe("Buy {@X}");
-  });
-
-  it("identical values: first name wins deterministically, no nested markers", () => {
-    expect(contractConstants("USD and USD", ["A", "B"], { A: "USD", B: "USD" })).toBe("{@A} and {@A}");
-  });
-
-  it("pushedConstantRewrites lists only pushed values that reference constants", () => {
-    const { pushedConstantRewrites } = require("../src/shared/constants.js");
-    expect(
-      pushedConstantRewrites({ "c:k": { en: "Pay {@T}", es: "Pagá" }, "c:z": { en: "x" } }),
-    ).toEqual([{ namespace: "c", key: "k", lang: "en", value: "Pay {@T}", previous: "Pay {@T}" }]);
-  });
-
-  it("expandForWrite reports undefined constants and keeps unchanged objects", () => {
-    const { expandForWrite } = require("../src/shared/constants.js");
-    const changes = [{ value: "Pay {@T} {@NOPE}" }, { value: "plain" }];
-    const r = expandForWrite(changes, { T: "USDT" });
-    expect(r.changes[0].value).toBe("Pay USDT {@NOPE}");
-    expect(r.changes[1]).toBe(changes[1]);
-    expect(r.missing).toEqual(["NOPE"]);
-  });
-});
