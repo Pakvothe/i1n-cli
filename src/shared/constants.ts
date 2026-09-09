@@ -72,18 +72,11 @@ export function contractConstants(
   // user who retypes the NEW literal after a server-side change still
   // round-trips. First name wins on a value collision (values are also
   // required to be unique by the server/editor).
-  // Tiered: every name's FIRST value (the snapshot expanded into the file)
-  // is registered before any name's later values (current server values),
-  // so two constants that swapped values server-side still contract an
-  // untouched file correctly. First name wins on a residual collision.
   const byValue = new Map<string, string>();
-  const nameList = [...new Set(names)];
-  const maxTiers = Math.max(0, ...nameList.map(n => (Array.isArray(constants[n]) ? (constants[n] as string[]).length : 1)));
-  for (let tier = 0; tier < maxTiers; tier++) {
-    for (const name of nameList) {
-      const raw = constants[name];
-      const vals = Array.isArray(raw) ? raw : raw === undefined ? [] : [raw];
-      const v = vals[tier];
+  for (const name of new Set(names)) {
+    const raw = constants[name];
+    const vals = Array.isArray(raw) ? raw : raw === undefined ? [] : [raw];
+    for (const v of vals) {
       if (typeof v === "string" && v.length > 0 && !byValue.has(v)) byValue.set(v, name);
     }
   }

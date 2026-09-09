@@ -696,19 +696,16 @@ export const pushCommand = new Command("push")
 
     // Single choke-point for state writes so the unapplied-server-only
     // rollback is never forgotten on any path.
-    // The constants snapshot may advance to the current map ONLY once every
-    // file that holds an expansion has been rewritten with it (server-only
-    // write-back done AND pushed values refreshed). Until then the state keeps
-    // the old snapshot/hash so the next run re-detects the drift instead of
-    // misreading stale literals as edits.
-    let constantsSynced = false;
     const writeStateFile = (
       pushed: Record<string, Record<string, string>>,
     ): void => {
+      // If server-only changes did not reach the files, the files still hold
+      // the OLD constant expansions: keep the old snapshot/hash so the next
+      // run detects the drift again instead of misreading them as edits.
       const constantsInfo =
-        constantsSynced && serverOnlyUnapplied.length === 0
-          ? { constants: currentConstants, hash: currentConstantsHash }
-          : { constants: snapshotConstants, hash: state.constants_hash };
+        serverOnlyUnapplied.length > 0
+          ? { constants: snapshotConstants, hash: state.constants_hash }
+          : { constants: currentConstants, hash: currentConstantsHash };
       const next = buildNextState(serverWordings, pushed, constantsInfo);
       revertUnappliedServerOnly(next, serverOnlyUnapplied, state);
       writePushState(next, config.localesDir);
@@ -766,7 +763,6 @@ export const pushCommand = new Command("push")
 
     if (pushItems.length === 0) {
       // Nothing to push, but state should advance so next push is fast.
-      constantsSynced = true; // no pushed values to refresh
       writeStateFile({});
 
       if (diff.serverOnly.length === 0 && diff.conflicts.length === 0) {
@@ -885,31 +881,20 @@ export const pushCommand = new Command("push")
       // with the CURRENT map, so the disk never keeps an old expansion while
       // the state snapshot has moved on (that would read as an edit next time).
       const rewrites = pushedConstantRewrites(pushedPerKeyLang);
-      if (rewrites.length === 0) {
-        constantsSynced = true;
-      } else if (warnings.length === 0) {
+      if (rewrites.length > 0 && warnings.length === 0) {
         try {
-          const prepared = expandForWrite(rewrites, currentConstants);
-          if (prepared.missing.length > 0) {
-            p.log.warn(
-              `Undefined constant(s) ${prepared.missing.map((n) => `{@${n}}`).join(", ")} in pushed values were written as literal markers.`,
-            );
-          }
-          applyServerOnlyToLocalFiles(prepared.changes, wordings, config.localesDir, parser);
-          constantsSynced = true;
+          applyServerOnlyToLocalFiles(
+            expandForWrite(rewrites, currentConstants).changes,
+            wordings,
+            config.localesDir,
+            parser,
+          );
         } catch (err) {
           p.log.warn(
             `Could not refresh constant expansions in local files: ${err instanceof Error ? err.message : String(err)}. Run \`i1n pull\`.`,
           );
         }
-      } else {
-        p.log.warn(
-          "Constant expansions in local files were not refreshed because some locale files could not be read. Run `i1n pull` after fixing them.",
-        );
       }
-      // Final write: advances the constants snapshot only if everything on disk
-      // now reflects the current map.
-      writeStateFile(pushedPerKeyLang);
     }
 
     // Parse --translate flag for target languages
