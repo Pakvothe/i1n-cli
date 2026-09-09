@@ -13,11 +13,6 @@ import {
   type ServerOnlyChange,
 } from "../../shared/push-state.js";
 import { normalizeWordingLanguages } from "../../shared/languages.js";
-import {
-  contractWordings,
-  expandConstants,
-  staleConstantRefs,
-} from "../../shared/constants.js";
 import { text, error } from "./helpers.js";
 import type {
   PullResponse,
@@ -152,17 +147,12 @@ export async function handlePush() {
   const state = readPushState(config.localesDir);
   const stateEmpty = Object.keys(state.wordings).length === 0;
 
-  // Constants (see cli/commands/push.ts for the full rationale).
-  const snapshotConstants = state.constants ?? null;
-  let currentConstants: Record<string, string> | null = snapshotConstants;
-  let currentConstantsHash: string | undefined = state.constants_hash;
-
   let serverWordings: Wording[] = [];
   let needFullPull = stateEmpty;
 
   if (!stateEmpty) {
     try {
-      const { revisions, constants_hash } = await callCliSync(
+      const { revisions } = await callCliSync(
         "pull-revisions",
         { project_id: config.projectId },
         config.apiKey,
@@ -172,9 +162,6 @@ export async function handlePush() {
         serverKeyMap.set(`${r.namespace}:${r.key}`, r.updated_at);
       }
       const stateKeys = Object.keys(state.wordings);
-      if ((constants_hash ?? "") !== (state.constants_hash ?? "")) {
-        needFullPull = true;
-      }
       if (serverKeyMap.size !== stateKeys.length) {
         needFullPull = true;
       } else {
@@ -194,12 +181,10 @@ export async function handlePush() {
     try {
       const pullResult: PullResponse = await callCliSync(
         "pull",
-        { project_id: config.projectId, raw_constants: true },
+        { project_id: config.projectId },
         config.apiKey,
       );
       serverWordings = pullResult.wordings;
-      currentConstants = pullResult.constants ?? null;
-      currentConstantsHash = pullResult.constants_hash;
     } catch (err) {
       return error(
         err instanceof Error ? err.message : "Could not fetch server state",
@@ -217,43 +202,7 @@ export async function handlePush() {
     });
   }
 
-  const baselineValues: Record<string, Record<string, string>> = {};
-
-  for (const [k, entry] of Object.entries(state.wordings)) baselineValues[k] = entry.values;
-
-  const contractedLocal = contractWordings(
-
-    wordings,
-
-    serverWordings,
-
-    baselineValues,
-
-    snapshotConstants,
-
-    currentConstants,
-
-  );
-
-  const diff: DiffResult = diffThreeWay(contractedLocal, serverWordings, state);
-
-  const touched = new Set<string>(
-
-    [...diff.toPush, ...diff.conflicts, ...diff.serverOnly].map(
-
-      (c) => `${c.namespace}:${c.key}:${c.lang}`,
-
-    ),
-
-  );
-
-  for (const st of staleConstantRefs(serverWordings, snapshotConstants, currentConstants)) {
-
-    if (touched.has(`${st.namespace}:${st.key}:${st.lang}`)) continue;
-
-    diff.serverOnly.push({ namespace: st.namespace, key: st.key, lang: st.lang, value: st.value, previous: st.value });
-
-  }
+  const diff: DiffResult = diffThreeWay(wordings, serverWordings, state);
 
   messages.push(
     `${diff.toPush.length} local edits, ${diff.serverOnly.length} server-only, ${diff.conflicts.length} conflicts, ${diff.unchanged} unchanged.`,
@@ -287,10 +236,7 @@ export async function handlePush() {
   if (diff.serverOnly.length > 0) {
     try {
       applyServerOnlyToLocalFiles(
-        diff.serverOnly.map((c) => ({
-          ...c,
-          value: expandConstants(c.value, currentConstants).text,
-        })),
+        diff.serverOnly,
         wordings,
         config.localesDir,
         parser,
@@ -333,7 +279,7 @@ export async function handlePush() {
 
   if (payload.length === 0) {
     // No push needed but advance state to reflect freshly synced baseline.
-    const nextState = buildNextState(serverWordings, {}, { constants: currentConstants, hash: currentConstantsHash });
+    const nextState = buildNextState(serverWordings, {});
     writePushState(nextState, config.localesDir);
     if (warnings.length > 0) {
       messages.push("Parse warnings:");
@@ -377,7 +323,7 @@ export async function handlePush() {
           pushedPerKeyLang[k][lang] = val;
         }
       }
-      const partialState = buildNextState(serverWordings, pushedPerKeyLang, { constants: currentConstants, hash: currentConstantsHash });
+      const partialState = buildNextState(serverWordings, pushedPerKeyLang);
       writePushState(partialState, config.localesDir);
     }
   } catch (err) {

@@ -235,30 +235,6 @@ The MCP `i1n_push` tool runs the same diff but defaults to **abort on conflict**
 
 ---
 
-## 🧱 Project constants
-
-Fixed text that repeats across many wordings — a token symbol, a product
-name — can be defined once in the dashboard (Settings → AI Context →
-Constants) and referenced from any wording as `{@NAME}`:
-
-```json
-{ "wallet": { "balance": "Your {@TOKEN_USDT} balance is {amount}" } }
-```
-
-- `i1n pull` writes the locale files with every `{@NAME}` **expanded** to its
-  value, so your app never sees a marker. Runtime params like `{amount}` are
-  untouched, and constants never appear in the generated `i1n.d.ts` types.
-- `i1n push` contracts edited files back to markers before diffing, so editing
-  text around a constant keeps the reference. Deleting the token text drops the
-  reference (as intended); typing `{@NAME}` by hand is passed through.
-- Changing a constant's value in the dashboard counts as a change: the next
-  `pull` (or `push`) rewrites every file that referenced it.
-- A `{@NAME}` with no definition is written as a literal marker and reported as
-  a warning.
-
-The AI never translates a constant, and `i1n check` does not require it to be
-present in every language.
-
 ## 📁 Supported Formats
 
 | Format            | Frameworks                   | File Sample           |

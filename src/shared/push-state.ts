@@ -36,15 +36,6 @@ export interface PushStateEntry {
 export interface PushStateV2 {
   version: 2;
   wordings: Record<string /* "ns:key" */, PushStateEntry>;
-  /**
-   * Project constants as they were EXPANDED into the local files at the
-   * last sync (NAME → value), plus the server's fingerprint of the map.
-   * `push` contracts local files with these values, and treats a
-   * fingerprint mismatch as drift even when no wording changed. Absent on
-   * state written by pre-1.6 clients or projects without constants.
-   */
-  constants?: Record<string, string>;
-  constants_hash?: string;
 }
 
 const EMPTY_STATE: PushStateV2 = { version: 2, wordings: {} };
@@ -358,15 +349,8 @@ export function diffThreeWay(
 export function buildNextState(
   serverWordings: Wording[],
   pushedPerKeyLang: Record<string, Record<string, string>>,
-  constantsInfo?: { constants: Record<string, string> | null | undefined; hash: string | undefined },
 ): PushStateV2 {
   const next: PushStateV2 = { version: 2, wordings: {} };
-  if (constantsInfo) {
-    if (constantsInfo.constants && Object.keys(constantsInfo.constants).length > 0) {
-      next.constants = { ...constantsInfo.constants };
-    }
-    if (constantsInfo.hash) next.constants_hash = constantsInfo.hash;
-  }
 
   // Start with server snapshot per (ns, key).
   for (const w of serverWordings) {
